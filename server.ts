@@ -8,6 +8,7 @@ import { randomUUID } from "crypto";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import { aiService } from "./src/services/ai";
 
@@ -18,7 +19,17 @@ const __dirname = path.dirname(__filename);
 
 const JWT_SECRET = process.env.JWT_SECRET || "acadynova-secret-key-2026";
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "*";
-const db = new Database("acadynova.db");
+const DB_PATH = process.env.DATABASE_PATH
+  ? path.resolve(process.env.DATABASE_PATH)
+  : path.resolve(process.cwd(), "acadynova.db");
+
+fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+
+const db = new Database(DB_PATH);
+db.pragma("busy_timeout = 5000");
+db.pragma("journal_mode = WAL");
+
+console.log(`[db] Using database: ${DB_PATH}`);
 
 const DEPARTMENT_ALIASES: Record<string, string> = {
   CS: 'CSE',
@@ -281,6 +292,7 @@ async function startServer() {
       
       const user = { id: result.lastInsertRowid, name: displayName, email, role, reg_no, dept: normalizedDept, year, sem };
       const token = jwt.sign(user, JWT_SECRET);
+      io.emit('user:created', { id: user.id, role: user.role });
       res.json({ token, user });
     } catch (error) {
       res.status(400).json({ error: "Email or registration number already exists" });

@@ -91,10 +91,16 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
       void loadAdminData();
     });
 
+    // Listen for new users created from any device/session
+    socket.on('user:created', () => {
+      void loadAdminData();
+    });
+
     return () => {
       socket.off('quiz:deleted');
       socket.off('quiz:submitted');
       socket.off('quiz:launched');
+      socket.off('user:created');
     };
   }, []);
 

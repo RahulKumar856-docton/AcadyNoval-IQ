@@ -1,14 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Eye, Award, Clock, TrendingUp } from 'lucide-react';
-import { User, Quiz } from '../types';
+import { ArrowLeft, Eye, Award, Clock, TrendingUp, AlertCircle, CheckCircle2, Target } from 'lucide-react';
+import { StudentSubmission, User } from '../types';
 import { api } from '../services/api';
-
-interface SubmissionWithScore extends Quiz {
-  myScore?: number;
-  timeTaken?: number;
-  accuracy?: number;
-}
 
 interface SubmissionsPageProps {
   user: User;
@@ -16,9 +10,9 @@ interface SubmissionsPageProps {
 
 export default function SubmissionsPage({ user }: SubmissionsPageProps) {
   const navigate = useNavigate();
-  const [submissions, setSubmissions] = useState<SubmissionWithScore[]>([]);
+  const [submissions, setSubmissions] = useState<StudentSubmission[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedSubmission, setSelectedSubmission] = useState<SubmissionWithScore | null>(null);
+  const [selectedSubmission, setSelectedSubmission] = useState<StudentSubmission | null>(null);
 
   useEffect(() => {
     loadSubmissions();
@@ -27,26 +21,34 @@ export default function SubmissionsPage({ user }: SubmissionsPageProps) {
   const loadSubmissions = async () => {
     try {
       setLoading(true);
-      const allQuizzes = await api.getQuizzes();
-      
-      // Filter for completed submissions and SSA quizzes
-      const ssaSubmissions = allQuizzes.filter((quiz: Quiz) => {
-        // Check if it's an SSA submission (quiz title contains "SSA")
-        const isSSA = quiz.title && quiz.title.toLowerCase().includes('ssa');
-        // Check if student has submitted
-        const hasSubmitted = quiz.hasSubmitted;
-        // Check if results are published by faculty
-        const resultsPublished = quiz.results_published;
-        
-        return isSSA && hasSubmitted && resultsPublished;
-      });
-
-      setSubmissions(ssaSubmissions);
+      const submissionData = await api.getMySubmissions();
+      setSubmissions(Array.isArray(submissionData) ? submissionData : []);
     } catch (err) {
       console.error('Failed to load submissions:', err);
     } finally {
       setLoading(false);
     }
+  };
+
+  const publishedSubmissions = submissions.filter((submission) => submission.resultsPublished);
+  const pendingSubmissions = submissions.filter((submission) => !submission.resultsPublished);
+
+  const getSubmissionAnswer = (submission: StudentSubmission, questionId: string, questionIndex: number) => {
+    return submission.answers[questionId] ?? submission.answers[String(questionIndex)];
+  };
+
+  const buildQuestionReview = (submission: StudentSubmission) => {
+    return submission.questions.map((question, questionIndex) => {
+      const studentAnswer = getSubmissionAnswer(submission, question.id, questionIndex);
+      const correctAnswer = question.correctAnswer;
+      return {
+        question,
+        questionIndex,
+        studentAnswer,
+        correctAnswer,
+        isCorrect: studentAnswer === correctAnswer,
+      };
+    });
   };
 
   const getGradeColor = (score: number | undefined) => {
@@ -65,6 +67,14 @@ export default function SubmissionsPage({ user }: SubmissionsPageProps) {
     return 'bg-red-100';
   };
 
+  const getScoreLabel = (score: number | null) => {
+    if (score === null) return 'Pending Review';
+    if (score >= 80) return 'Excellent';
+    if (score >= 60) return 'Good';
+    if (score >= 40) return 'Satisfactory';
+    return 'Needs Improvement';
+  };
+
   return (
     <div className="landing-shell min-h-screen flex items-center justify-center py-12">
       <div className="ambient-blob blob-a" />
@@ -76,10 +86,10 @@ export default function SubmissionsPage({ user }: SubmissionsPageProps) {
           <div className="flex flex-col items-center gap-4">
             <div>
               <h1 className="hero-title text-3xl">
-                My <span className="text-gradient">SSA Submissions</span>
+                My <span className="text-gradient">Submissions</span>
               </h1>
               <p className="hero-subtitle mt-1">
-                View your SSA submissions and evaluation marks
+                Track published results, see your marks, and review weak areas clearly
               </p>
             </div>
             <button
@@ -100,14 +110,33 @@ export default function SubmissionsPage({ user }: SubmissionsPageProps) {
         ) : submissions.length === 0 ? (
           <div className="glass-card reveal p-12 text-center">
             <Award size={48} className="mx-auto mb-4 text-gray-400" />
-            <p className="text-gray-600 text-lg">No SSA submissions found</p>
+            <p className="text-gray-600 text-lg">No submissions found</p>
             <p className="text-gray-500 text-sm mt-2">
-              Complete SSA assessments to see your submissions here
+              Complete quizzes to see your results and evaluation here
             </p>
           </div>
         ) : (
-          <div className="space-y-4">
-            {submissions.map((submission, idx) => (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="glass-card p-5 text-center">
+                <p className="text-sm text-gray-600">Published Results</p>
+                <p className="text-3xl font-bold text-emerald-600 mt-2">{publishedSubmissions.length}</p>
+              </div>
+              <div className="glass-card p-5 text-center">
+                <p className="text-sm text-gray-600">Pending Evaluation</p>
+                <p className="text-3xl font-bold text-amber-600 mt-2">{pendingSubmissions.length}</p>
+              </div>
+              <div className="glass-card p-5 text-center">
+                <p className="text-sm text-gray-600">Average Published Score</p>
+                <p className="text-3xl font-bold text-blue-600 mt-2">
+                  {publishedSubmissions.length > 0
+                    ? (publishedSubmissions.reduce((sum, submission) => sum + (submission.score || 0), 0) / publishedSubmissions.length).toFixed(1)
+                    : '0.0'}%
+                </p>
+              </div>
+            </div>
+
+            {submissions.map((submission) => (
               <div
                 key={submission.id}
                 className="glass-card reveal p-6 hover:shadow-lg transition-shadow"
@@ -129,41 +158,48 @@ export default function SubmissionsPage({ user }: SubmissionsPageProps) {
                         <p>
                           <span className="font-medium text-gray-700">Semester:</span> {submission.sem}
                         </p>
-                        {submission.createdAt && (
+                        {submission.submittedAt && (
                           <p>
                             <span className="font-medium text-gray-700">Submitted:</span>{' '}
-                            {new Date(submission.createdAt).toLocaleDateString()}
+                            {new Date(submission.submittedAt).toLocaleString()}
                           </p>
                         )}
+                        <p>
+                          <span className="font-medium text-gray-700">Status:</span>{' '}
+                          {submission.resultsPublished ? 'Published' : 'Awaiting faculty evaluation'}
+                        </p>
                       </div>
                     </div>
 
                     <button
-                      onClick={() => setSelectedSubmission(submission)}
+                      onClick={() => submission.resultsPublished && setSelectedSubmission(submission)}
+                      disabled={!submission.resultsPublished}
                       className="btn-outline-primary inline-flex items-center gap-2 mt-4 w-full justify-center"
                     >
                       <Eye size={16} />
-                      View Details
+                      {submission.resultsPublished ? 'View Evaluation' : 'Result Pending'}
                     </button>
                   </div>
 
                   {/* Right side - Score display */}
                   <div className="flex flex-col items-center justify-center">
-                    <div className={`${getGradeBg(submission.myScore)} rounded-full p-8 mb-4`}>
+                    <div className={`${getGradeBg(submission.score ?? undefined)} rounded-full p-8 mb-4`}>
                       <div className="text-center">
-                        <div className={`text-5xl font-bold ${getGradeColor(submission.myScore)}`}>
-                          {submission.myScore ?? '-'}
+                        <div className={`text-5xl font-bold ${getGradeColor(submission.score ?? undefined)}`}>
+                          {submission.score ?? '-'}
                         </div>
                         <p className="text-sm text-gray-600 mt-2">out of 100</p>
                       </div>
                     </div>
 
-                    {submission.myScore !== undefined && (
-                      <div className={`inline-flex px-3 py-1 rounded-full text-sm font-medium ${getGradeBg(submission.myScore)} ${getGradeColor(submission.myScore)}`}>
-                        {submission.myScore >= 80 && 'Excellent'}
-                        {submission.myScore >= 60 && submission.myScore < 80 && 'Good'}
-                        {submission.myScore >= 40 && submission.myScore < 60 && 'Satisfactory'}
-                        {submission.myScore < 40 && 'Needs Improvement'}
+                    <div className={`inline-flex px-3 py-1 rounded-full text-sm font-medium ${getGradeBg(submission.score ?? undefined)} ${getGradeColor(submission.score ?? undefined)}`}>
+                      {getScoreLabel(submission.score)}
+                    </div>
+
+                    {submission.resultsPublished && (
+                      <div className="mt-4 text-sm text-gray-600 text-center">
+                        <p>{submission.correctCount} of {submission.totalQuestions} answers correct</p>
+                        <p>{submission.accuracy.toFixed(1)}% accuracy</p>
                       </div>
                     )}
                   </div>
@@ -201,7 +237,7 @@ export default function SubmissionsPage({ user }: SubmissionsPageProps) {
                   <div>
                     <p className="text-sm text-gray-600">Your Score</p>
                     <p className="text-2xl font-bold text-emerald-600">
-                      {selectedSubmission.myScore ?? '-'} / 100
+                      {selectedSubmission.score ?? '-'} / 100
                     </p>
                   </div>
                 </div>
@@ -217,6 +253,16 @@ export default function SubmissionsPage({ user }: SubmissionsPageProps) {
                     </div>
                   </div>
                 )}
+
+                <div className="flex items-center gap-3 p-3 bg-violet-50 rounded-lg">
+                  <Target className="text-violet-600" size={20} />
+                  <div>
+                    <p className="text-sm text-gray-600">Correct Answers</p>
+                    <p className="text-2xl font-bold text-violet-600">
+                      {selectedSubmission.correctCount} / {selectedSubmission.totalQuestions}
+                    </p>
+                  </div>
+                </div>
 
                 {selectedSubmission.timeTaken !== undefined && (
                   <div className="flex items-center gap-3 p-3 bg-orange-50 rounded-lg">
@@ -248,10 +294,50 @@ export default function SubmissionsPage({ user }: SubmissionsPageProps) {
                   <div>
                     <p className="text-gray-600 text-xs">Total Questions</p>
                     <p className="font-semibold text-gray-800">
-                      {selectedSubmission.questions?.length || '-'}
+                      {selectedSubmission.totalQuestions || '-'}
                     </p>
                   </div>
                 </div>
+              </div>
+
+              <div className="border-t border-gray-200 pt-4 mt-4 space-y-4 max-h-[50vh] overflow-y-auto">
+                <div className="rounded-lg bg-emerald-50 p-4">
+                  <div className="flex items-center gap-2 text-emerald-700 font-semibold mb-1">
+                    <CheckCircle2 size={18} /> Strength Snapshot
+                  </div>
+                  <p className="text-sm text-gray-700">
+                    You answered {selectedSubmission.correctCount} out of {selectedSubmission.totalQuestions} questions correctly with {selectedSubmission.accuracy.toFixed(1)}% accuracy.
+                  </p>
+                </div>
+
+                {buildQuestionReview(selectedSubmission).filter((item) => !item.isCorrect).length > 0 ? (
+                  <div className="rounded-lg bg-amber-50 p-4">
+                    <div className="flex items-center gap-2 text-amber-700 font-semibold mb-2">
+                      <AlertCircle size={18} /> Questions To Review
+                    </div>
+                    <div className="space-y-3">
+                      {buildQuestionReview(selectedSubmission)
+                        .filter((item) => !item.isCorrect)
+                        .map((item) => (
+                          <div key={item.question.id} className="rounded-lg border border-amber-200 bg-white p-3">
+                            <p className="text-sm font-semibold text-gray-800">
+                              Q{item.questionIndex + 1}. {item.question.text}
+                            </p>
+                            <p className="text-xs text-red-600 mt-2">
+                              Your answer: {item.studentAnswer !== undefined ? `${String.fromCharCode(65 + item.studentAnswer)}. ${item.question.options[item.studentAnswer]}` : 'Not answered'}
+                            </p>
+                            <p className="text-xs text-emerald-700 mt-1">
+                              Correct answer: {String.fromCharCode(65 + item.correctAnswer)}. {item.question.options[item.correctAnswer]}
+                            </p>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-lg bg-emerald-50 p-4 text-sm text-emerald-700 font-medium">
+                    All answers were correct. No weak areas found in this submission.
+                  </div>
+                )}
               </div>
 
               <button

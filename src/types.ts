@@ -50,3 +50,22 @@ export interface StudentStats {
   totalQuizzes: number;
   avgScore: number;
 }
+
+export interface StudentSubmission {
+  id: number;
+  quizId: number;
+  title: string;
+  dept: string;
+  year: string;
+  sem: string;
+  status?: 'draft' | 'live' | 'ended';
+  resultsPublished: boolean;
+  submittedAt: string;
+  timeTaken: number;
+  accuracy: number;
+  score: number | null;
+  correctCount: number;
+  totalQuestions: number;
+  questions: Question[];
+  answers: Record<string, number>;
+}

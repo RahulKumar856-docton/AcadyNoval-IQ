@@ -58,6 +58,11 @@ const normalizeUserRecord = (user: any) => {
   };
 };
 
+const getSubmissionAnswer = (answers: Record<string, number>, questionId: string, questionIndex: number) => {
+  if (!answers) return undefined;
+  return answers[questionId] ?? answers[String(questionIndex)];
+};
+
 const buildQuestionId = (existingId: any, fallbackIndex: number) => {
   const trimmed = String(existingId || '').trim();
   return trimmed || `question-${fallbackIndex + 1}-${randomUUID().slice(0, 8)}`;
@@ -680,6 +685,62 @@ async function startServer() {
       FROM submissions WHERE student_id = ?
     `).get(req.user.id);
     res.json(stats);
+  });
+
+  app.get("/api/submissions/me", authenticateToken, (req: any, res) => {
+    if (req.user.role !== 'student') return res.sendStatus(403);
+
+    const submissions = db.prepare(`
+      SELECT
+        s.id,
+        s.quiz_id as quizId,
+        s.score,
+        s.time_taken as timeTaken,
+        s.accuracy,
+        s.answers,
+        s.submitted_at as submittedAt,
+        q.title,
+        q.dept,
+        q.year,
+        q.sem,
+        q.questions,
+        q.results_published as resultsPublished,
+        q.status
+      FROM submissions s
+      JOIN quizzes q ON q.id = s.quiz_id
+      WHERE s.student_id = ?
+      ORDER BY s.submitted_at DESC
+    `).all(req.user.id);
+
+    const formattedSubmissions = submissions.map((submission: any) => {
+      const questions = ensureQuestionIds(submission.questions ? JSON.parse(submission.questions) : []);
+      const answers = submission.answers ? JSON.parse(submission.answers) : {};
+      const correctCount = questions.reduce((count: number, question: any, questionIndex: number) => {
+        const studentAnswer = getSubmissionAnswer(answers, question.id, questionIndex);
+        return studentAnswer === question.correctAnswer ? count + 1 : count;
+      }, 0);
+
+      return {
+        id: submission.id,
+        quizId: submission.quizId,
+        title: submission.title,
+        dept: submission.dept,
+        year: submission.year,
+        sem: submission.sem,
+        status: submission.status,
+        resultsPublished: submission.resultsPublished === 1,
+        submittedAt: submission.submittedAt,
+        timeTaken: submission.timeTaken || 0,
+        accuracy: submission.accuracy || 0,
+        score: submission.resultsPublished === 1 ? submission.score : null,
+        correctCount,
+        totalQuestions: questions.length,
+        questions: submission.resultsPublished === 1 ? questions : [],
+        answers: submission.resultsPublished === 1 ? answers : {},
+      };
+    });
+
+    res.json(formattedSubmissions);
   });
 
   // Profile Routes

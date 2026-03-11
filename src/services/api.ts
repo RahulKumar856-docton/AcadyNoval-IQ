@@ -36,6 +36,7 @@ export const api = {
   submitQuiz: (id: string, score: number, timeTaken?: number, accuracy?: number, answers?: Record<string, number>) => 
     fetchWithAuth(`/api/quizzes/${id}/submit`, { method: "POST", body: JSON.stringify({ score, timeTaken, accuracy, answers }) }),
   getStudentStats: () => fetchWithAuth("/api/stats/student"),
+  getMySubmissions: () => fetchWithAuth("/api/submissions/me"),
   getQuizSubmissions: (id: string) => fetchWithAuth(`/api/quizzes/${id}/submissions`),
   launchQuiz: (id: string) => fetchWithAuth(`/api/quizzes/${id}/launch`, { method: "POST" }),
   publishResults: (id: string) => fetchWithAuth(`/api/quizzes/${id}/publish-results`, { method: "POST" }),

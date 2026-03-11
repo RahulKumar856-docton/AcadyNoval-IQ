@@ -4,6 +4,7 @@ import { Server } from "socket.io";
 import { createServer as createViteServer } from "vite";
 import Database from "better-sqlite3";
 import bcrypt from "bcryptjs";
+import { randomUUID } from "crypto";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import path from "path";
@@ -57,18 +58,24 @@ const normalizeUserRecord = (user: any) => {
   };
 };
 
-const sanitizeQuestions = (questions: any[]): Array<{ text: string; options: string[]; correctAnswer: number }> => {
+const buildQuestionId = (existingId: any, fallbackIndex: number) => {
+  const trimmed = String(existingId || '').trim();
+  return trimmed || `question-${fallbackIndex + 1}-${randomUUID().slice(0, 8)}`;
+};
+
+const sanitizeQuestions = (questions: any[]): Array<{ id: string; text: string; options: string[]; correctAnswer: number }> => {
   if (!Array.isArray(questions)) return [];
 
   return questions
-    .map((q: any) => {
+    .map((q: any, index: number) => {
       const text = String(q?.text || '').trim();
       const options = Array.isArray(q?.options)
         ? q.options.slice(0, 4).map((opt: any) => String(opt || '').trim())
         : [];
       const correctAnswer = Number(q?.correctAnswer);
+      const id = buildQuestionId(q?.id, index);
 
-      return { text, options, correctAnswer };
+      return { id, text, options, correctAnswer };
     })
     .filter((q) => {
       const hasValidText = q.text.length > 0;
@@ -87,6 +94,7 @@ const buildFallbackQuestions = (topic: string, count: number, difficulty: string
   return Array.from({ length: normalizedCount }, (_, idx) => {
     const qNum = idx + 1;
     return {
+      id: buildQuestionId('', idx),
       text: `(${difficultyHint}) ${safeTopic}: Question ${qNum}. Which statement is the most accurate?`,
       options: [
         `Core concept of ${safeTopic} for question ${qNum}`,
@@ -98,6 +106,8 @@ const buildFallbackQuestions = (topic: string, count: number, difficulty: string
     };
   });
 };
+
+const ensureQuestionIds = (questions: any[]) => sanitizeQuestions(Array.isArray(questions) ? questions : []);
 
 // Initialize Database
 db.exec(`
@@ -173,6 +183,16 @@ try {
 for (const [legacyCode, canonicalCode] of Object.entries(DEPARTMENT_ALIASES)) {
   db.prepare("UPDATE users SET dept = ? WHERE UPPER(TRIM(COALESCE(dept, ''))) = ?").run(canonicalCode, legacyCode);
   db.prepare("UPDATE quizzes SET dept = ? WHERE UPPER(TRIM(COALESCE(dept, ''))) = ?").run(canonicalCode, legacyCode);
+}
+
+const storedQuizzes: Array<{ id: number; questions: string | null }> = db.prepare("SELECT id, questions FROM quizzes").all();
+for (const quiz of storedQuizzes) {
+  const parsedQuestions = quiz.questions ? JSON.parse(quiz.questions) : [];
+  const normalizedQuestions = ensureQuestionIds(parsedQuestions);
+  const normalizedJson = JSON.stringify(normalizedQuestions);
+  if (quiz.questions !== normalizedJson) {
+    db.prepare("UPDATE quizzes SET questions = ? WHERE id = ?").run(normalizedJson, quiz.id);
+  }
 }
 
 async function startServer() {
@@ -470,7 +490,7 @@ async function startServer() {
     }
     const quizzesWithQuestions = quizzes.map((q: any) => ({
       ...q,
-      questions: q.questions ? JSON.parse(q.questions) : []
+      questions: ensureQuestionIds(q.questions ? JSON.parse(q.questions) : [])
     }));
     res.json(quizzesWithQuestions);
   });
@@ -508,7 +528,7 @@ async function startServer() {
     if (quiz) {
       const quizWithQuestions = {
         ...quiz,
-        questions: JSON.parse(quiz.questions),
+        questions: ensureQuestionIds(JSON.parse(quiz.questions)),
         submissions: 0,
         avgScore: 0,
         status: 'live'
@@ -587,7 +607,7 @@ async function startServer() {
       return res.status(404).json({ error: "Quiz not found" });
     }
     
-    const questions = quiz.questions ? JSON.parse(quiz.questions) : [];
+    const questions = ensureQuestionIds(quiz.questions ? JSON.parse(quiz.questions) : []);
     
     // Get submissions
     const submissions = db.prepare(`

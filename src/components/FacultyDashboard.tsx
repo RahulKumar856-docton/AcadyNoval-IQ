@@ -43,6 +43,11 @@ export default function FacultyDashboard({ user, onLogout }: FacultyDashboardPro
   const [expandedQuiz, setExpandedQuiz] = useState<string | null>(null);
   const [expandedSubmission, setExpandedSubmission] = useState<string | null>(null);
 
+  const getSubmissionAnswer = (submission: SubmissionRow, questionId: string, questionIndex: number) => {
+    if (!submission.answers) return undefined;
+    return submission.answers[questionId] ?? submission.answers[String(questionIndex)];
+  };
+
   const addManualQuestion = () => {
     setNewQuiz((prev) => ({
       ...prev,
@@ -846,7 +851,7 @@ export default function FacultyDashboard({ user, onLogout }: FacultyDashboardPro
                               <h4 className="font-semibold text-slate-700 mb-3">Student Answers Review</h4>
                               <div className="space-y-4">
                                 {s.questions.map((q, qIndex) => {
-                                  const studentAnswer = s.answers?.[q.id];
+                                  const studentAnswer = getSubmissionAnswer(s, q.id, qIndex);
                                   const isCorrect = studentAnswer === q.correctAnswer;
                                   return (
                                     <div key={q.id} className="bg-white rounded-lg p-4 border border-slate-200">

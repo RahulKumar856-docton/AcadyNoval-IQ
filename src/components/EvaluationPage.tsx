@@ -16,7 +16,7 @@ interface Submission {
   accuracy: number;
   submitted_at: string;
   answers: Record<string, number>;
-  questions: Array<{ text: string; options: string[]; correctAnswer: number }>;
+  questions: Array<{ id?: string; text: string; options: string[]; correctAnswer: number }>;
 }
 
 interface EvaluationPageProps {
@@ -33,6 +33,15 @@ export default function EvaluationPage({ user }: EvaluationPageProps) {
   const [evaluationMarks, setEvaluationMarks] = useState<Record<number, number>>({});
   const [savingMarks, setSavingMarks] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
+
+  const getSubmissionAnswer = (submission: Submission, questionIndex: number) => {
+    const question = submission.questions[questionIndex];
+    const questionId = question?.id;
+    if (questionId && submission.answers[questionId] !== undefined) {
+      return submission.answers[questionId];
+    }
+    return submission.answers[String(questionIndex)];
+  };
 
   useEffect(() => {
     loadSubmissions();
@@ -100,7 +109,7 @@ export default function EvaluationPage({ user }: EvaluationPageProps) {
   const getCorrectCount = (submission: Submission) => {
     let correct = 0;
     submission.questions.forEach((q, idx) => {
-      if (submission.answers[idx] === q.correctAnswer) {
+      if (getSubmissionAnswer(submission, idx) === q.correctAnswer) {
         correct++;
       }
     });
@@ -255,7 +264,7 @@ export default function EvaluationPage({ user }: EvaluationPageProps) {
                         <h4 className="font-semibold text-gray-800 mb-3">Answer Review</h4>
                         <div className="space-y-3 max-h-96 overflow-y-auto">
                           {submission.questions.map((q, idx) => {
-                            const studentAnswer = submission.answers[idx];
+                            const studentAnswer = getSubmissionAnswer(submission, idx);
                             const isCorrect = studentAnswer === q.correctAnswer;
                             return (
                               <div key={idx} className={`p-3 rounded-lg border ${isCorrect ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>

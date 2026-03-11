@@ -48,7 +48,7 @@ export default function ProfilePage({ user, onUpdateUser }: ProfilePageProps) {
   const handleProfileUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!profileData.dept) {
+    if (!profileData.name.trim() || !profileData.dept) {
       setMessage({ type: 'error', text: 'Please fill in all required fields.' });
       return;
     }
@@ -68,7 +68,8 @@ export default function ProfilePage({ user, onUpdateUser }: ProfilePageProps) {
     setMessage({ type: '', text: '' });
     
     try {
-      await api.updateProfile({
+      const response = await api.updateProfile({
+        name: profileData.name.trim(),
         dept: profileData.dept,
         year: profileData.year,
         sem: profileData.sem,
@@ -77,9 +78,10 @@ export default function ProfilePage({ user, onUpdateUser }: ProfilePageProps) {
 
       // Update user context
       onUpdateUser({
-        dept: profileData.dept,
-        year: profileData.year,
-        sem: profileData.sem,
+        name: response?.user?.name ?? profileData.name.trim(),
+        dept: response?.user?.dept ?? profileData.dept,
+        year: response?.user?.year ?? profileData.year,
+        sem: response?.user?.sem ?? profileData.sem,
       });
 
       setMessage({ type: 'success', text: 'Profile updated successfully!' });
@@ -126,17 +128,22 @@ export default function ProfilePage({ user, onUpdateUser }: ProfilePageProps) {
 
         <section className="glass-card reveal p-8">
           <form onSubmit={handleProfileUpdate} className="space-y-6 w-full">
-            {/* Read-only fields */}
+            {/* Editable name */}
             <div className="space-y-2">
-              <label className="form-label text-sm font-semibold text-gray-700 block">Name</label>
+              <label className="form-label text-sm font-semibold text-gray-700 block">
+                Name <span className="text-red-500">*</span>
+              </label>
               <input
                 type="text"
-                className="form-control bg-gray-50 w-full"
+                className="form-control w-full"
                 value={profileData.name}
-                disabled
-                readOnly
+                onChange={(e) => setProfileData({ ...profileData, name: e.target.value })}
+                disabled={savingProfile}
+                required
               />
             </div>
+
+            {/* Read-only fields */}
 
             <div className="space-y-2">
               <label className="form-label text-sm font-semibold text-gray-700 block">Email</label>

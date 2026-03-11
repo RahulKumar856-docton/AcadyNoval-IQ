@@ -245,6 +245,11 @@ async function startServer() {
   app.post("/api/auth/signup", async (req, res) => {
     const { name, email, password, role, reg_no, dept, year, sem } = req.body;
     const normalizedDept = normalizeDepartment(dept);
+    const normalizedName = String(name || '').trim();
+
+    if (!normalizedName) {
+      return res.status(400).json({ error: 'Name is required' });
+    }
     
     // For students, validate college email domain
     if (role === 'student') {
@@ -267,8 +272,7 @@ async function startServer() {
     
     const hashedPassword = await bcrypt.hash(password, 10);
     
-    // For students, use registration number as name
-    const displayName = role === 'student' ? reg_no : name;
+    const displayName = normalizedName;
     
     try {
       const result = db.prepare(
@@ -754,20 +758,32 @@ async function startServer() {
   });
 
   app.put("/api/profile", authenticateToken, async (req: any, res) => {
-    const { dept, year, sem, password } = req.body;
+    const { name, dept, year, sem, password } = req.body;
     const userId = req.user.id;
     const normalizedDept = normalizeDepartment(dept);
+    const existingUser: any = db.prepare("SELECT id, name FROM users WHERE id = ?").get(userId);
+
+    if (!existingUser) {
+      return res.sendStatus(404);
+    }
+
+    const shouldUpdateName = name !== undefined;
+    const normalizedName = shouldUpdateName ? String(name || '').trim() : existingUser.name;
+
+    if (shouldUpdateName && !normalizedName) {
+      return res.status(400).json({ error: 'Name cannot be empty' });
+    }
 
     try {
       if (password) {
         // Update with password
         const hashedPassword = await bcrypt.hash(password, 10);
-        db.prepare("UPDATE users SET dept = ?, year = ?, sem = ?, password = ? WHERE id = ?")
-          .run(normalizedDept, year, sem, hashedPassword, userId);
+        db.prepare("UPDATE users SET name = ?, dept = ?, year = ?, sem = ?, password = ? WHERE id = ?")
+          .run(normalizedName, normalizedDept, year, sem, hashedPassword, userId);
       } else {
         // Update without password
-        db.prepare("UPDATE users SET dept = ?, year = ?, sem = ? WHERE id = ?")
-          .run(normalizedDept, year, sem, userId);
+        db.prepare("UPDATE users SET name = ?, dept = ?, year = ?, sem = ? WHERE id = ?")
+          .run(normalizedName, normalizedDept, year, sem, userId);
       }
 
       const updatedUser: any = db.prepare("SELECT id, name, email, role, reg_no, dept, year, sem FROM users WHERE id = ?").get(userId);

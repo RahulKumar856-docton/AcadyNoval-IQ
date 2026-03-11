@@ -26,6 +26,11 @@ export default function LandingPage({ onLoginSuccess }: LandingPageProps) {
 
     // Validate college email for students
     if (showAuth?.role === 'student' && showAuth?.type === 'signup') {
+      if (!formData.name.trim()) {
+        setError('Please enter your full name');
+        return;
+      }
+
       const emailDomain = formData.email.split('@')[1]?.toLowerCase();
       const allowedDomain = 'mkce.ac.in';
       const personalDomains = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com'];
@@ -251,6 +256,14 @@ export default function LandingPage({ onLoginSuccess }: LandingPageProps) {
             <form onSubmit={handleAuth} className="form-container">
               {showAuth.type === 'signup' && showAuth.role === 'student' && (
                 <>
+                  <input
+                    type="text"
+                    placeholder="Full Name"
+                    required
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    className="form-input min-h-[44px]"
+                  />
                   <input
                     type="text"
                     placeholder="Registration Number (e.g., 927623BCS084)"

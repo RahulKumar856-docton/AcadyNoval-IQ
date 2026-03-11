@@ -176,13 +176,22 @@ export default function ProfilePage({ user, onUpdateUser }: ProfilePageProps) {
                 disabled={savingProfile}
                 required
               >
-                <option value="CSE">Computer Science Engineering</option>
-                <option value="ECE">Electronics & Communication</option>
-                <option value="EEE">Electrical & Electronics</option>
-                <option value="MECH">Mechanical Engineering</option>
-                <option value="CIVIL">Civil Engineering</option>
-                <option value="IT">Information Technology</option>
-                <option value="AIDS">AI & Data Science</option>
+                <option value="CSE">Computer Science & Engineering (CSE)</option>
+                <option value="IT">Information Technology (IT)</option>
+                <option value="SE">Software Engineering (SE)</option>
+                <option value="ISE">Information Science Engineering (ISE)</option>
+                <option value="ECE">Electronics & Communication (ECE)</option>
+                <option value="EE">Electrical Engineering (EE)</option>
+                <option value="ME">Mechanical Engineering (ME)</option>
+                <option value="CE">Civil Engineering (CE)</option>
+                <option value="BE">Biomedical Engineering (BE)</option>
+                <option value="AE">Aerospace Engineering (AE)</option>
+                <option value="ChE">Chemical Engineering (ChE)</option>
+                <option value="PE">Production Engineering (PE)</option>
+                <option value="TE">Thermal Engineering (TE)</option>
+                <option value="AU">Automobile Engineering (AU)</option>
+                <option value="VLSI">VLSI Design (VLSI)</option>
+                <option value="AI">Artificial Intelligence (AI)</option>
               </select>
             </div>
 

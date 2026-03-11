@@ -19,6 +19,44 @@ const JWT_SECRET = process.env.JWT_SECRET || "acadynova-secret-key-2026";
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "*";
 const db = new Database("acadynova.db");
 
+const DEPARTMENT_ALIASES: Record<string, string> = {
+  CS: 'CSE',
+  CSE: 'CSE',
+  IT: 'IT',
+  SE: 'SE',
+  ISE: 'ISE',
+  ECE: 'ECE',
+  EEE: 'EE',
+  EE: 'EE',
+  MECH: 'ME',
+  ME: 'ME',
+  CIVIL: 'CE',
+  CE: 'CE',
+  BE: 'BE',
+  AE: 'AE',
+  CHE: 'ChE',
+  CHEMICAL: 'ChE',
+  PE: 'PE',
+  TE: 'TE',
+  AU: 'AU',
+  VLSI: 'VLSI',
+  AIDS: 'AI',
+  AI: 'AI',
+};
+
+const normalizeDepartment = (dept?: string | null) => {
+  const normalizedKey = String(dept || '').trim().toUpperCase();
+  return DEPARTMENT_ALIASES[normalizedKey] || String(dept || '').trim();
+};
+
+const normalizeUserRecord = (user: any) => {
+  if (!user) return user;
+  return {
+    ...user,
+    dept: normalizeDepartment(user.dept),
+  };
+};
+
 const sanitizeQuestions = (questions: any[]): Array<{ text: string; options: string[]; correctAnswer: number }> => {
   if (!Array.isArray(questions)) return [];
 
@@ -132,6 +170,11 @@ try {
   // Index already exists
 }
 
+for (const [legacyCode, canonicalCode] of Object.entries(DEPARTMENT_ALIASES)) {
+  db.prepare("UPDATE users SET dept = ? WHERE UPPER(TRIM(COALESCE(dept, ''))) = ?").run(canonicalCode, legacyCode);
+  db.prepare("UPDATE quizzes SET dept = ? WHERE UPPER(TRIM(COALESCE(dept, ''))) = ?").run(canonicalCode, legacyCode);
+}
+
 async function startServer() {
   const app = express();
   const httpServer = createServer(app);
@@ -161,7 +204,7 @@ async function startServer() {
 
     jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
       if (err) return res.sendStatus(403);
-      req.user = user;
+      req.user = normalizeUserRecord(user);
       next();
     });
   };
@@ -176,6 +219,7 @@ async function startServer() {
   // Auth Routes
   app.post("/api/auth/signup", async (req, res) => {
     const { name, email, password, role, reg_no, dept, year, sem } = req.body;
+    const normalizedDept = normalizeDepartment(dept);
     
     // For students, validate college email domain
     if (role === 'student') {
@@ -204,9 +248,9 @@ async function startServer() {
     try {
       const result = db.prepare(
         "INSERT INTO users (name, email, password, role, reg_no, dept, year, sem) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-      ).run(displayName, email, hashedPassword, role, reg_no, dept, year, sem);
+      ).run(displayName, email, hashedPassword, role, reg_no, normalizedDept, year, sem);
       
-      const user = { id: result.lastInsertRowid, name: displayName, email, role, reg_no, dept, year, sem };
+      const user = { id: result.lastInsertRowid, name: displayName, email, role, reg_no, dept: normalizedDept, year, sem };
       const token = jwt.sign(user, JWT_SECRET);
       res.json({ token, user });
     } catch (error) {
@@ -226,7 +270,8 @@ async function startServer() {
     }
     
     if (user && await bcrypt.compare(password, user.password)) {
-      const { password: _, ...userWithoutPassword } = user;
+      const { password: _, ...userWithoutPasswordRaw } = user;
+      const userWithoutPassword = normalizeUserRecord(userWithoutPasswordRaw);
       const token = jwt.sign(userWithoutPassword, JWT_SECRET);
       res.json({ token, user: userWithoutPassword });
     } else {
@@ -276,7 +321,7 @@ async function startServer() {
     const facultyId = Number(req.params.id);
     const name = String(req.body?.name || '').trim();
     const email = String(req.body?.email || '').trim();
-    const dept = String(req.body?.dept || '').trim();
+    const dept = normalizeDepartment(req.body?.dept);
 
     if (!facultyId || !name || !email) {
       return res.status(400).json({ error: 'Name and email are required' });
@@ -421,7 +466,7 @@ async function startServer() {
           (SELECT COUNT(*) FROM submissions WHERE quiz_id = q.id AND student_id = ?) as hasSubmitted
         FROM quizzes q 
         WHERE q.status = 'live' AND ((q.dept = ? AND q.year = ? AND q.sem = ?) OR q.is_general = 1)
-      `).all(req.user.id, req.user.id, req.user.dept, req.user.year, req.user.sem);
+      `).all(req.user.id, req.user.id, normalizeDepartment(req.user.dept), req.user.year, req.user.sem);
     }
     const quizzesWithQuestions = quizzes.map((q: any) => ({
       ...q,
@@ -433,6 +478,7 @@ async function startServer() {
   app.post("/api/quizzes", authenticateToken, (req: any, res) => {
     if (req.user.role !== 'faculty') return res.sendStatus(403);
     const { title, dept, year, sem, questions, isGeneral } = req.body;
+    const normalizedDept = normalizeDepartment(dept || req.user.dept);
 
     const validQuestions = sanitizeQuestions(questions || []);
 
@@ -446,9 +492,9 @@ async function startServer() {
 
     const result = db.prepare(
       "INSERT INTO quizzes (title, faculty_id, dept, year, sem, questions, status, is_general) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-    ).run(title, req.user.id, dept, year, sem, JSON.stringify(validQuestions), 'live', isGeneral ? 1 : 0);
+    ).run(title, req.user.id, normalizedDept, year, sem, JSON.stringify(validQuestions), 'live', isGeneral ? 1 : 0);
     
-    const newQuiz = { id: result.lastInsertRowid, title, dept, year, sem, questions: validQuestions, submissions: 0, avgScore: 0, status: 'live', isGeneral };
+    const newQuiz = { id: result.lastInsertRowid, title, dept: normalizedDept, year, sem, questions: validQuestions, submissions: 0, avgScore: 0, status: 'live', isGeneral };
     io.emit("quiz:launched", newQuiz);
     res.json(newQuiz);
   });
@@ -620,7 +666,7 @@ async function startServer() {
   app.get("/api/profile", authenticateToken, (req: any, res) => {
     const user: any = db.prepare("SELECT id, name, email, role, reg_no, dept, year, sem FROM users WHERE id = ?").get(req.user.id);
     if (user) {
-      res.json(user);
+      res.json(normalizeUserRecord(user));
     } else {
       res.sendStatus(404);
     }
@@ -629,21 +675,22 @@ async function startServer() {
   app.put("/api/profile", authenticateToken, async (req: any, res) => {
     const { dept, year, sem, password } = req.body;
     const userId = req.user.id;
+    const normalizedDept = normalizeDepartment(dept);
 
     try {
       if (password) {
         // Update with password
         const hashedPassword = await bcrypt.hash(password, 10);
         db.prepare("UPDATE users SET dept = ?, year = ?, sem = ?, password = ? WHERE id = ?")
-          .run(dept, year, sem, hashedPassword, userId);
+          .run(normalizedDept, year, sem, hashedPassword, userId);
       } else {
         // Update without password
         db.prepare("UPDATE users SET dept = ?, year = ?, sem = ? WHERE id = ?")
-          .run(dept, year, sem, userId);
+          .run(normalizedDept, year, sem, userId);
       }
 
       const updatedUser: any = db.prepare("SELECT id, name, email, role, reg_no, dept, year, sem FROM users WHERE id = ?").get(userId);
-      res.json({ success: true, user: updatedUser });
+      res.json({ success: true, user: normalizeUserRecord(updatedUser) });
     } catch (error) {
       res.status(400).json({ error: "Failed to update profile" });
     }

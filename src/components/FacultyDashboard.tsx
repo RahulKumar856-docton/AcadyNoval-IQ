@@ -22,6 +22,18 @@ interface SubmissionRow {
 
 export default function FacultyDashboard({ user, onLogout }: FacultyDashboardProps) {
   const navigate = useNavigate();
+
+  // Parse per-year subjects from JSON stored in user.subject
+  const subjectsByYear: Record<string, string> = React.useMemo(() => {
+    if (!user.subject) return {};
+    try {
+      const parsed = JSON.parse(user.subject);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+    } catch {}
+    return {};
+  }, [user.subject]);
+
+  const teachingYears = Object.keys(subjectsByYear);
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -29,9 +41,10 @@ export default function FacultyDashboard({ user, onLogout }: FacultyDashboardPro
     title: '',
     dept: user.dept || 'CSE',
     year: (() => {
-      // Pre-fill year from faculty's first teaching year if available
-      const firstYear = user.teaching_years?.split(',').map((y) => y.trim()).filter(Boolean)[0];
-      return firstYear || '1st';
+      try {
+        const keys = Object.keys(JSON.parse(user.subject || '{}') || {});
+        return keys[0] || '1st';
+      } catch { return '1st'; }
     })(),
     sem: '1st',
     isGeneral: true,
@@ -150,7 +163,7 @@ export default function FacultyDashboard({ user, onLogout }: FacultyDashboardPro
     try {
       setCreating(true);
       await api.createQuiz(newQuiz);
-      const defaultYear = user.teaching_years?.split(',').map((y) => y.trim()).filter(Boolean)[0] || '1st';
+      const defaultYear = teachingYears[0] || '1st';
       setNewQuiz((prev) => ({ ...prev, title: '', dept: user.dept || 'CSE', year: defaultYear, questions: [], isGeneral: true }));
       setAiTopic('');
       await refreshQuizzes();
@@ -275,13 +288,16 @@ export default function FacultyDashboard({ user, onLogout }: FacultyDashboardPro
                 <p className="hero-subtitle mt-2">
                   Welcome back, <span className="font-semibold text-emerald-700">{user.name}</span>
                   {user.dept && (
-                    <span className="text-emerald-600"> • {user.dept} Department</span>
+                    <span className="text-emerald-600"> • {user.dept}</span>
                   )}
-                  {user.subject && (
-                    <span className="text-slate-600"> • {user.subject}</span>
-                  )}
-                  {user.teaching_years && (
-                    <span className="text-slate-500"> • Year: {user.teaching_years}</span>
+                  {teachingYears.length > 0 && (
+                    <span className="text-slate-500"> • {teachingYears.map((yr) => (
+                      <span key={yr}>
+                        <span className="text-emerald-600 font-semibold">{yr} Year</span>
+                        {subjectsByYear[yr] ? <span className="text-slate-500">: {subjectsByYear[yr]}</span> : null}
+                        {'  '}
+                      </span>
+                    ))}</span>
                   )}
                 </p>
               </div>
@@ -377,15 +393,17 @@ export default function FacultyDashboard({ user, onLogout }: FacultyDashboardPro
                 <div className="flex items-center gap-2 font-semibold text-emerald-700">
                   <Sparkles size={16} /> AI Quiz Generator
                 </div>
-                {user.subject && !aiTopic && (
+                {teachingYears.length > 0 && !aiTopic && (
                   <p className="text-xs text-emerald-600 bg-emerald-100 rounded-md px-2 py-1">
-                    💡 Tip: You teach <strong>{user.subject}</strong> — use it as the topic below!
+                    💡 Tip: You teach{' '}
+                    {teachingYears.map((yr) => subjectsByYear[yr]).filter(Boolean).join(', ')}{' '}
+                    — use a subject as the topic below!
                   </p>
                 )}
                 <input
                   value={aiTopic}
                   onChange={(e) => setAiTopic(e.target.value)}
-                  placeholder={user.subject ? `e.g. ${user.subject.split(',')[0].trim()} - Introduction` : "Topic (e.g., Data Structures - Stacks & Queues)"}
+                  placeholder={teachingYears.length > 0 && subjectsByYear[teachingYears[0]] ? `e.g. ${subjectsByYear[teachingYears[0]].split(',')[0].trim()} - Introduction` : "Topic (e.g., Data Structures - Stacks & Queues)"}
                   className="form-input min-h-[44px] text-base"
                 />
 
@@ -549,9 +567,9 @@ export default function FacultyDashboard({ user, onLogout }: FacultyDashboardPro
 
                   <div className="form-group">
                     <label className="form-label">Year</label>
-                    {user.teaching_years && (
+                    {teachingYears.length > 0 && (
                       <div className="flex flex-wrap gap-1 mb-1">
-                        {user.teaching_years.split(',').map((y) => y.trim()).filter(Boolean).map((yr) => (
+                        {teachingYears.map((yr) => (
                           <button
                             key={yr}
                             type="button"
@@ -561,8 +579,14 @@ export default function FacultyDashboard({ user, onLogout }: FacultyDashboardPro
                                 ? 'bg-emerald-600 text-white border-emerald-600'
                                 : 'bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-100'
                             }`}
+                            title={subjectsByYear[yr] ? `Subjects: ${subjectsByYear[yr]}` : yr}
                           >
                             {yr}
+                            {subjectsByYear[yr] && (
+                              <span className="ml-1 opacity-70 text-[10px]">
+                                ({subjectsByYear[yr].split(',').length} subj)
+                              </span>
+                            )}
                           </button>
                         ))}
                       </div>

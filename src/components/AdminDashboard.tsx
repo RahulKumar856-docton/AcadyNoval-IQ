@@ -68,7 +68,17 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
   const [quizRows, setQuizRows] = useState<QuizAuditRow[]>([]);
   const [studentRows, setStudentRows] = useState<StudentRow[]>([]);
   const [editingFacultyId, setEditingFacultyId] = useState<number | null>(null);
-  const [editForm, setEditForm] = useState({ name: '', email: '', dept: 'CSE', subject: '', teaching_years: '' });
+  const [editForm, setEditForm] = useState({ name: '', email: '', dept: 'CSE' });
+  const [editSubjectsByYear, setEditSubjectsByYear] = useState<Record<string, string>>({});
+
+  const parseSubjectsByYear = (raw?: string): Record<string, string> => {
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+    } catch {}
+    return {};
+  };
 
   const selectedFaculty = useMemo(
     () => facultyRows.find((f) => f.id === editingFacultyId) || null,
@@ -141,9 +151,8 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
       name: faculty.name,
       email: faculty.email,
       dept: faculty.dept || 'CSE',
-      subject: faculty.subject || '',
-      teaching_years: faculty.teaching_years || '',
     });
+    setEditSubjectsByYear(parseSubjectsByYear(faculty.subject));
   };
 
   const saveFaculty = async () => {
@@ -156,7 +165,11 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
 
     try {
       setSavingId(editingFacultyId);
-      await api.updateAdminFaculty(editingFacultyId, editForm);
+      await api.updateAdminFaculty(editingFacultyId, {
+        ...editForm,
+        subject: Object.keys(editSubjectsByYear).length > 0 ? JSON.stringify(editSubjectsByYear) : undefined,
+        teaching_years: Object.keys(editSubjectsByYear).join(', ') || undefined,
+      });
       setEditingFacultyId(null);
       await loadAdminData();
     } catch (err: any) {
@@ -316,14 +329,25 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
                         </td>
                         <td>{faculty.dept || '-'}</td>
                         <td>
-                          <div className="text-xs text-slate-700 font-medium">
-                            {faculty.subject || <span className="text-slate-400 italic">No subject set</span>}
-                          </div>
-                          {faculty.teaching_years && (
-                            <div className="text-xs text-emerald-600 mt-0.5">
-                              Years: {faculty.teaching_years}
-                            </div>
-                          )}
+                          {(() => {
+                            const byYear = parseSubjectsByYear(faculty.subject);
+                            const years = Object.keys(byYear);
+                            if (years.length === 0) {
+                              return <span className="text-slate-400 italic text-xs">No teaching details set</span>;
+                            }
+                            return (
+                              <div className="space-y-0.5">
+                                {years.map((yr) => (
+                                  <div key={yr} className="text-xs">
+                                    <span className="font-semibold text-emerald-700">{yr} Year</span>
+                                    {byYear[yr] && (
+                                      <span className="text-slate-600">: {byYear[yr]}</span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })()}
                         </td>
                         <td>
                           <div className="text-xs text-slate-600">
@@ -413,44 +437,59 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label">Subject(s) Handling</label>
-                  <input
-                    value={editForm.subject}
-                    onChange={(e) => setEditForm((prev) => ({ ...prev, subject: e.target.value }))}
-                    placeholder="e.g. Data Structures, OS"
-                    className="form-input min-h-[44px]"
-                  />
-                  <p className="text-xs text-slate-500 mt-1">Comma-separated list of subjects</p>
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">Year(s) / Class Handling</label>
-                  <div className="flex flex-wrap gap-2 mt-1">
+                  <label className="form-label">🎓 Teaching Details (Year → Subjects)</label>
+                  <div className="space-y-2 mt-1">
                     {['1st', '2nd', '3rd', '4th'].map((yr) => {
-                      const selected = editForm.teaching_years.split(',').map((y) => y.trim()).filter(Boolean).includes(yr);
+                      const isSelected = yr in editSubjectsByYear;
                       return (
-                        <button
+                        <div
                           key={yr}
-                          type="button"
-                          onClick={() => {
-                            const current = editForm.teaching_years.split(',').map((y) => y.trim()).filter(Boolean);
-                            const updated = selected
-                              ? current.filter((y) => y !== yr)
-                              : [...current, yr];
-                            setEditForm((prev) => ({ ...prev, teaching_years: updated.join(', ') }));
-                          }}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
-                            selected
-                              ? 'bg-emerald-600 text-white border-emerald-600'
-                              : 'bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-100'
+                          className={`rounded-lg border p-2.5 transition-all ${
+                            isSelected ? 'border-emerald-400 bg-emerald-50/60' : 'border-slate-200 bg-white/60'
                           }`}
                         >
-                          {yr} Year
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditSubjectsByYear((prev) => {
+                                const updated = { ...prev };
+                                if (isSelected) delete updated[yr];
+                                else updated[yr] = '';
+                                return updated;
+                              });
+                            }}
+                            className="flex items-center gap-2 w-full text-left"
+                          >
+                            <span
+                              className={`w-4 h-4 rounded border-2 flex-shrink-0 flex items-center justify-center text-[10px] font-bold ${
+                                isSelected
+                                  ? 'bg-emerald-600 border-emerald-600 text-white'
+                                  : 'bg-white border-slate-300 text-transparent'
+                              }`}
+                            >
+                              ✓
+                            </span>
+                            <span className={`font-semibold text-xs ${isSelected ? 'text-emerald-700' : 'text-slate-500'}`}>
+                              {yr} Year
+                            </span>
+                          </button>
+                          {isSelected && (
+                            <div className="mt-1.5 pl-6">
+                              <input
+                                type="text"
+                                className="form-input min-h-[36px] text-xs w-full"
+                                placeholder="e.g. Data Structures, OS"
+                                value={editSubjectsByYear[yr] || ''}
+                                onChange={(e) =>
+                                  setEditSubjectsByYear((prev) => ({ ...prev, [yr]: e.target.value }))
+                                }
+                              />
+                            </div>
+                          )}
+                        </div>
                       );
                     })}
                   </div>
-                  <p className="text-xs text-slate-500 mt-1">Select year(s) this faculty handles</p>
                 </div>
 
                 <div className="flex gap-2">

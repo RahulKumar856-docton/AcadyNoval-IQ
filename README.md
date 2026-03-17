@@ -24,10 +24,10 @@ View your app in AI Studio: https://ai.studio/apps/3e545d9d-2c83-4c3c-bbbd-d64e0
 If you deploy on Render and want students/faculty from all devices to remain visible in Admin after restarts/redeploys, use a persistent disk for SQLite.
 
 1. In Render, add a Persistent Disk and mount it (example mount path: `/var/data`).
-2. Add environment variable:
+2. Add environment variable (recommended):
    `DATABASE_PATH=/var/data/acadynova.db`
 3. Redeploy the service.
 
 Notes:
-- The server now reads `DATABASE_PATH` and stores users/quizzes/submissions there.
+- The server reads `DATABASE_PATH`. If not set and running on Render, it defaults to `/var/data/acadynova.db`.
 - Without a persistent disk, local files can be reset during redeploys.

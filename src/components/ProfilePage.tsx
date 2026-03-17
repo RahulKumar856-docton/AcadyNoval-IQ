@@ -9,6 +9,15 @@ interface ProfilePageProps {
   onUpdateUser: (updatedUser: Partial<User>) => void;
 }
 
+const parseSubjectsByYear = (raw: string | undefined): Record<string, string> => {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, string>;
+  } catch {}
+  return {};
+};
+
 export default function ProfilePage({ user, onUpdateUser }: ProfilePageProps) {
   const navigate = useNavigate();
   const [profileData, setProfileData] = useState({
@@ -18,10 +27,11 @@ export default function ProfilePage({ user, onUpdateUser }: ProfilePageProps) {
     dept: user.dept || 'CSE',
     year: user.year || '1st',
     sem: user.sem || '1st',
-    subject: user.subject || '',
-    teaching_years: user.teaching_years || '',
     password: '',
   });
+  const [subjectsByYear, setSubjectsByYear] = useState<Record<string, string>>(
+    parseSubjectsByYear(user.subject)
+  );
   const [savingProfile, setSavingProfile] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
 
@@ -39,10 +49,9 @@ export default function ProfilePage({ user, onUpdateUser }: ProfilePageProps) {
         dept: profile.dept || 'CSE',
         year: profile.year || '1st',
         sem: profile.sem || '1st',
-        subject: profile.subject || '',
-        teaching_years: profile.teaching_years || '',
         password: '',
       });
+      setSubjectsByYear(parseSubjectsByYear(profile.subject));
     } catch (err) {
       console.error('Failed to load profile:', err);
       setMessage({ type: 'error', text: 'Failed to load profile. Please try again.' });
@@ -72,13 +81,16 @@ export default function ProfilePage({ user, onUpdateUser }: ProfilePageProps) {
     setMessage({ type: '', text: '' });
     
     try {
+      const subjectJson = Object.keys(subjectsByYear).length > 0 ? JSON.stringify(subjectsByYear) : undefined;
+      const derivedTeachingYears = Object.keys(subjectsByYear).join(', ') || undefined;
+
       const response = await api.updateProfile({
         name: profileData.name.trim(),
         dept: profileData.dept,
         year: profileData.year,
         sem: profileData.sem,
-        subject: profileData.subject || undefined,
-        teaching_years: profileData.teaching_years || undefined,
+        subject: subjectJson,
+        teaching_years: derivedTeachingYears,
         password: profileData.password || undefined,
       });
 
@@ -88,8 +100,8 @@ export default function ProfilePage({ user, onUpdateUser }: ProfilePageProps) {
         dept: response?.user?.dept ?? profileData.dept,
         year: response?.user?.year ?? profileData.year,
         sem: response?.user?.sem ?? profileData.sem,
-        subject: response?.user?.subject ?? profileData.subject,
-        teaching_years: response?.user?.teaching_years ?? profileData.teaching_years,
+        subject: response?.user?.subject,
+        teaching_years: response?.user?.teaching_years,
       });
 
       setMessage({ type: 'success', text: 'Profile updated successfully!' });
@@ -258,57 +270,70 @@ export default function ProfilePage({ user, onUpdateUser }: ProfilePageProps) {
 
             {/* Faculty-specific fields */}
             {user.role === 'faculty' && (
-              <div className="space-y-4 rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
+              <div className="space-y-3 rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
                 <div className="text-sm font-bold text-emerald-700 flex items-center gap-1">
                   🎓 Teaching Details
                 </div>
+                <p className="text-xs text-slate-500">Select each year you handle, then enter the subjects you teach for that year.</p>
 
                 <div className="space-y-2">
-                  <label className="form-label text-sm font-semibold text-gray-700 block">
-                    Subject(s) Handling
-                  </label>
-                  <input
-                    type="text"
-                    className="form-control w-full"
-                    placeholder="e.g. Data Structures, Operating Systems"
-                    value={profileData.subject}
-                    onChange={(e) => setProfileData({ ...profileData, subject: e.target.value })}
-                    disabled={savingProfile}
-                  />
-                  <p className="text-xs text-gray-500">Enter all subjects you teach, comma-separated.</p>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="form-label text-sm font-semibold text-gray-700 block">
-                    Year(s) / Class Handling
-                  </label>
-                  <div className="flex flex-wrap gap-2">
-                    {['1st', '2nd', '3rd', '4th'].map((yr) => {
-                      const selected = profileData.teaching_years.split(',').map((y) => y.trim()).filter(Boolean).includes(yr);
-                      return (
+                  {['1st', '2nd', '3rd', '4th'].map((yr) => {
+                    const isSelected = yr in subjectsByYear;
+                    return (
+                      <div
+                        key={yr}
+                        className={`rounded-lg border p-3 transition-all ${
+                          isSelected ? 'border-emerald-400 bg-white' : 'border-slate-200 bg-white/60'
+                        }`}
+                      >
                         <button
-                          key={yr}
                           type="button"
                           disabled={savingProfile}
                           onClick={() => {
-                            const current = profileData.teaching_years.split(',').map((y) => y.trim()).filter(Boolean);
-                            const updated = selected
-                              ? current.filter((y) => y !== yr)
-                              : [...current, yr];
-                            setProfileData({ ...profileData, teaching_years: updated.join(', ') });
+                            setSubjectsByYear((prev) => {
+                              const updated = { ...prev };
+                              if (isSelected) {
+                                delete updated[yr];
+                              } else {
+                                updated[yr] = '';
+                              }
+                              return updated;
+                            });
                           }}
-                          className={`px-4 py-2 rounded-lg text-sm font-semibold border transition-all ${
-                            selected
-                              ? 'bg-emerald-600 text-white border-emerald-600'
-                              : 'bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-100'
-                          }`}
+                          className="flex items-center gap-3 w-full text-left"
                         >
-                          {yr} Year
+                          <span
+                            className={`w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center transition-all text-xs font-bold ${
+                              isSelected
+                                ? 'bg-emerald-600 border-emerald-600 text-white'
+                                : 'bg-white border-slate-300 text-transparent'
+                            }`}
+                          >
+                            ✓
+                          </span>
+                          <span className={`font-semibold text-sm ${isSelected ? 'text-emerald-700' : 'text-slate-500'}`}>
+                            {yr} Year
+                          </span>
                         </button>
-                      );
-                    })}
-                  </div>
-                  <p className="text-xs text-gray-500">Select the year(s) you handle.</p>
+
+                        {isSelected && (
+                          <div className="mt-2 pl-8">
+                            <input
+                              type="text"
+                              className="form-control w-full text-sm"
+                              placeholder="e.g. Data Structures, Operating Systems"
+                              value={subjectsByYear[yr] || ''}
+                              onChange={(e) =>
+                                setSubjectsByYear((prev) => ({ ...prev, [yr]: e.target.value }))
+                              }
+                              disabled={savingProfile}
+                            />
+                            <p className="text-xs text-slate-400 mt-1">Subjects for {yr} year (comma-separated)</p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}

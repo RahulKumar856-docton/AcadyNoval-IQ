@@ -18,6 +18,8 @@ export default function ProfilePage({ user, onUpdateUser }: ProfilePageProps) {
     dept: user.dept || 'CSE',
     year: user.year || '1st',
     sem: user.sem || '1st',
+    subject: user.subject || '',
+    teaching_years: user.teaching_years || '',
     password: '',
   });
   const [savingProfile, setSavingProfile] = useState(false);
@@ -37,6 +39,8 @@ export default function ProfilePage({ user, onUpdateUser }: ProfilePageProps) {
         dept: profile.dept || 'CSE',
         year: profile.year || '1st',
         sem: profile.sem || '1st',
+        subject: profile.subject || '',
+        teaching_years: profile.teaching_years || '',
         password: '',
       });
     } catch (err) {
@@ -73,6 +77,8 @@ export default function ProfilePage({ user, onUpdateUser }: ProfilePageProps) {
         dept: profileData.dept,
         year: profileData.year,
         sem: profileData.sem,
+        subject: profileData.subject || undefined,
+        teaching_years: profileData.teaching_years || undefined,
         password: profileData.password || undefined,
       });
 
@@ -82,6 +88,8 @@ export default function ProfilePage({ user, onUpdateUser }: ProfilePageProps) {
         dept: response?.user?.dept ?? profileData.dept,
         year: response?.user?.year ?? profileData.year,
         sem: response?.user?.sem ?? profileData.sem,
+        subject: response?.user?.subject ?? profileData.subject,
+        teaching_years: response?.user?.teaching_years ?? profileData.teaching_years,
       });
 
       setMessage({ type: 'success', text: 'Profile updated successfully!' });
@@ -235,18 +243,75 @@ export default function ProfilePage({ user, onUpdateUser }: ProfilePageProps) {
                     disabled={savingProfile}
                     required
                   >
-                  <option value="1st">1st Semester</option>
-                  <option value="2nd">2nd Semester</option>
-                  <option value="3rd">3rd Semester</option>
-                  <option value="4th">4th Semester</option>
-                  <option value="5th">5th Semester</option>
-                  <option value="6th">6th Semester</option>
-                  <option value="7th">7th Semester</option>
-                  <option value="8th">8th Semester</option>
-                </select>
-              </div>
+                    <option value="1st">1st Semester</option>
+                    <option value="2nd">2nd Semester</option>
+                    <option value="3rd">3rd Semester</option>
+                    <option value="4th">4th Semester</option>
+                    <option value="5th">5th Semester</option>
+                    <option value="6th">6th Semester</option>
+                    <option value="7th">7th Semester</option>
+                    <option value="8th">8th Semester</option>
+                  </select>
+                </div>
               )}
             </div>
+
+            {/* Faculty-specific fields */}
+            {user.role === 'faculty' && (
+              <div className="space-y-4 rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
+                <div className="text-sm font-bold text-emerald-700 flex items-center gap-1">
+                  🎓 Teaching Details
+                </div>
+
+                <div className="space-y-2">
+                  <label className="form-label text-sm font-semibold text-gray-700 block">
+                    Subject(s) Handling
+                  </label>
+                  <input
+                    type="text"
+                    className="form-control w-full"
+                    placeholder="e.g. Data Structures, Operating Systems"
+                    value={profileData.subject}
+                    onChange={(e) => setProfileData({ ...profileData, subject: e.target.value })}
+                    disabled={savingProfile}
+                  />
+                  <p className="text-xs text-gray-500">Enter all subjects you teach, comma-separated.</p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="form-label text-sm font-semibold text-gray-700 block">
+                    Year(s) / Class Handling
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {['1st', '2nd', '3rd', '4th'].map((yr) => {
+                      const selected = profileData.teaching_years.split(',').map((y) => y.trim()).filter(Boolean).includes(yr);
+                      return (
+                        <button
+                          key={yr}
+                          type="button"
+                          disabled={savingProfile}
+                          onClick={() => {
+                            const current = profileData.teaching_years.split(',').map((y) => y.trim()).filter(Boolean);
+                            const updated = selected
+                              ? current.filter((y) => y !== yr)
+                              : [...current, yr];
+                            setProfileData({ ...profileData, teaching_years: updated.join(', ') });
+                          }}
+                          className={`px-4 py-2 rounded-lg text-sm font-semibold border transition-all ${
+                            selected
+                              ? 'bg-emerald-600 text-white border-emerald-600'
+                              : 'bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-100'
+                          }`}
+                        >
+                          {yr} Year
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-gray-500">Select the year(s) you handle.</p>
+                </div>
+              </div>
+            )}
 
             <div className="space-y-2">
               <label className="form-label text-sm font-semibold text-gray-700 block">

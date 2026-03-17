@@ -28,7 +28,11 @@ export default function FacultyDashboard({ user, onLogout }: FacultyDashboardPro
   const [newQuiz, setNewQuiz] = useState({
     title: '',
     dept: user.dept || 'CSE',
-    year: '1st',
+    year: (() => {
+      // Pre-fill year from faculty's first teaching year if available
+      const firstYear = user.teaching_years?.split(',').map((y) => y.trim()).filter(Boolean)[0];
+      return firstYear || '1st';
+    })(),
     sem: '1st',
     isGeneral: true,
     questions: [] as Array<{ text: string; options: string[]; correctAnswer: number }>,
@@ -146,7 +150,8 @@ export default function FacultyDashboard({ user, onLogout }: FacultyDashboardPro
     try {
       setCreating(true);
       await api.createQuiz(newQuiz);
-      setNewQuiz((prev) => ({ ...prev, title: '', dept: user.dept || 'CSE', questions: [], isGeneral: true }));
+      const defaultYear = user.teaching_years?.split(',').map((y) => y.trim()).filter(Boolean)[0] || '1st';
+      setNewQuiz((prev) => ({ ...prev, title: '', dept: user.dept || 'CSE', year: defaultYear, questions: [], isGeneral: true }));
       setAiTopic('');
       await refreshQuizzes();
     } catch (err) {
@@ -272,6 +277,12 @@ export default function FacultyDashboard({ user, onLogout }: FacultyDashboardPro
                   {user.dept && (
                     <span className="text-emerald-600"> • {user.dept} Department</span>
                   )}
+                  {user.subject && (
+                    <span className="text-slate-600"> • {user.subject}</span>
+                  )}
+                  {user.teaching_years && (
+                    <span className="text-slate-500"> • Year: {user.teaching_years}</span>
+                  )}
                 </p>
               </div>
             </div>
@@ -366,10 +377,15 @@ export default function FacultyDashboard({ user, onLogout }: FacultyDashboardPro
                 <div className="flex items-center gap-2 font-semibold text-emerald-700">
                   <Sparkles size={16} /> AI Quiz Generator
                 </div>
+                {user.subject && !aiTopic && (
+                  <p className="text-xs text-emerald-600 bg-emerald-100 rounded-md px-2 py-1">
+                    💡 Tip: You teach <strong>{user.subject}</strong> — use it as the topic below!
+                  </p>
+                )}
                 <input
                   value={aiTopic}
                   onChange={(e) => setAiTopic(e.target.value)}
-                  placeholder="Topic (e.g., Data Structures - Stacks & Queues)"
+                  placeholder={user.subject ? `e.g. ${user.subject.split(',')[0].trim()} - Introduction` : "Topic (e.g., Data Structures - Stacks & Queues)"}
                   className="form-input min-h-[44px] text-base"
                 />
 
@@ -533,6 +549,24 @@ export default function FacultyDashboard({ user, onLogout }: FacultyDashboardPro
 
                   <div className="form-group">
                     <label className="form-label">Year</label>
+                    {user.teaching_years && (
+                      <div className="flex flex-wrap gap-1 mb-1">
+                        {user.teaching_years.split(',').map((y) => y.trim()).filter(Boolean).map((yr) => (
+                          <button
+                            key={yr}
+                            type="button"
+                            onClick={() => setNewQuiz((p) => ({ ...p, year: yr }))}
+                            className={`px-2 py-0.5 rounded text-xs font-semibold border transition-all ${
+                              newQuiz.year === yr
+                                ? 'bg-emerald-600 text-white border-emerald-600'
+                                : 'bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-100'
+                            }`}
+                          >
+                            {yr}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     <select
                       value={newQuiz.year}
                       onChange={(e) => setNewQuiz((p) => ({ ...p, year: e.target.value }))}

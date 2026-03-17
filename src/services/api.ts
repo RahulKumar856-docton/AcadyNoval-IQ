@@ -44,12 +44,12 @@ export const api = {
   getAdminOverview: () => fetchWithAuth('/api/admin/overview'),
   getAdminFaculty: () => fetchWithAuth('/api/admin/faculty'),
   getAdminStudents: () => fetchWithAuth('/api/admin/students'),
-  updateAdminFaculty: (id: number, data: { name: string; email: string; dept?: string }) =>
+  updateAdminFaculty: (id: number, data: { name: string; email: string; dept?: string; subject?: string; teaching_years?: string }) =>
     fetchWithAuth(`/api/admin/faculty/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteAdminFaculty: (id: number) => fetchWithAuth(`/api/admin/faculty/${id}`, { method: 'DELETE' }),
   getAdminQuizzes: () => fetchWithAuth('/api/admin/quizzes'),
   getProfile: () => fetchWithAuth('/api/profile'),
-  updateProfile: (data: { name?: string; dept?: string; year?: string; sem?: string; password?: string }) =>
+  updateProfile: (data: { name?: string; dept?: string; year?: string; sem?: string; subject?: string; teaching_years?: string; password?: string }) =>
     fetchWithAuth('/api/profile', { method: 'PUT', body: JSON.stringify(data) }),
   updateSubmissionScore: (submissionId: number, score: number) =>
     fetchWithAuth(`/api/submissions/${submissionId}`, { method: 'PUT', body: JSON.stringify({ score }) }),

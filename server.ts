@@ -19,17 +19,39 @@ const __dirname = path.dirname(__filename);
 
 const JWT_SECRET = process.env.JWT_SECRET || "acadynova-secret-key-2026";
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "*";
-const DB_PATH = process.env.DATABASE_PATH
-  ? path.resolve(process.env.DATABASE_PATH)
-  : path.resolve(process.cwd(), "acadynova.db");
+const resolveDatabasePath = () => {
+  const configuredPath = String(process.env.DATABASE_PATH || '').trim();
+  if (configuredPath) {
+    return path.resolve(configuredPath);
+  }
 
-fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+  // Render services should prefer mounted persistent disk by default.
+  if (process.env.RENDER === 'true') {
+    return '/var/data/acadynova.db';
+  }
 
-const db = new Database(DB_PATH);
+  return path.resolve(process.cwd(), 'acadynova.db');
+};
+
+const createDatabase = () => {
+  const primaryPath = resolveDatabasePath();
+
+  try {
+    fs.mkdirSync(path.dirname(primaryPath), { recursive: true });
+    const primaryDb = new Database(primaryPath);
+    console.log(`[db] Using database: ${primaryPath}`);
+    return primaryDb;
+  } catch (error) {
+    const fallbackPath = path.resolve(process.cwd(), 'acadynova.db');
+    fs.mkdirSync(path.dirname(fallbackPath), { recursive: true });
+    console.warn(`[db] Failed to open ${primaryPath}. Falling back to ${fallbackPath}`);
+    return new Database(fallbackPath);
+  }
+};
+
+const db = createDatabase();
 db.pragma("busy_timeout = 5000");
 db.pragma("journal_mode = WAL");
-
-console.log(`[db] Using database: ${DB_PATH}`);
 
 const DEPARTMENT_ALIASES: Record<string, string> = {
   CS: 'CSE',
@@ -190,6 +212,18 @@ try {
 }
 
 try {
+  db.exec("ALTER TABLE users ADD COLUMN subject TEXT");
+} catch (e) {
+  // Column already exists
+}
+
+try {
+  db.exec("ALTER TABLE users ADD COLUMN teaching_years TEXT");
+} catch (e) {
+  // Column already exists
+}
+
+try {
   // Create unique index on reg_no for students
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_students_reg_no ON users(reg_no) WHERE role = 'student' AND reg_no IS NOT NULL");
 } catch (e) {
@@ -344,6 +378,8 @@ async function startServer() {
         u.name,
         u.email,
         u.dept,
+        u.subject,
+        u.teaching_years,
         COUNT(DISTINCT q.id) as totalQuizzes,
         COUNT(s.id) as totalSubmissions,
         COALESCE(AVG(s.score), 0) as avgScore
@@ -351,7 +387,7 @@ async function startServer() {
       LEFT JOIN quizzes q ON q.faculty_id = u.id
       LEFT JOIN submissions s ON s.quiz_id = q.id
       WHERE u.role = 'faculty'
-      GROUP BY u.id, u.name, u.email, u.dept
+      GROUP BY u.id, u.name, u.email, u.dept, u.subject, u.teaching_years
       ORDER BY u.id DESC
     `).all();
 
@@ -363,6 +399,8 @@ async function startServer() {
     const name = String(req.body?.name || '').trim();
     const email = String(req.body?.email || '').trim();
     const dept = normalizeDepartment(req.body?.dept);
+    const subject = String(req.body?.subject || '').trim() || null;
+    const teaching_years = String(req.body?.teaching_years || '').trim() || null;
 
     if (!facultyId || !name || !email) {
       return res.status(400).json({ error: 'Name and email are required' });
@@ -374,8 +412,8 @@ async function startServer() {
     }
 
     try {
-      db.prepare('UPDATE users SET name = ?, email = ?, dept = ? WHERE id = ? AND role = ?')
-        .run(name, email, dept, facultyId, 'faculty');
+      db.prepare('UPDATE users SET name = ?, email = ?, dept = ?, subject = ?, teaching_years = ? WHERE id = ? AND role = ?')
+        .run(name, email, dept, subject, teaching_years, facultyId, 'faculty');
       res.json({ success: true });
     } catch (error) {
       res.status(400).json({ error: 'Unable to update faculty. Email may already exist.' });
@@ -761,7 +799,7 @@ async function startServer() {
 
   // Profile Routes
   app.get("/api/profile", authenticateToken, (req: any, res) => {
-    const user: any = db.prepare("SELECT id, name, email, role, reg_no, dept, year, sem FROM users WHERE id = ?").get(req.user.id);
+    const user: any = db.prepare("SELECT id, name, email, role, reg_no, dept, year, sem, subject, teaching_years FROM users WHERE id = ?").get(req.user.id);
     if (user) {
       res.json(normalizeUserRecord(user));
     } else {
@@ -770,10 +808,10 @@ async function startServer() {
   });
 
   app.put("/api/profile", authenticateToken, async (req: any, res) => {
-    const { name, dept, year, sem, password } = req.body;
+    const { name, dept, year, sem, password, subject, teaching_years } = req.body;
     const userId = req.user.id;
     const normalizedDept = normalizeDepartment(dept);
-    const existingUser: any = db.prepare("SELECT id, name FROM users WHERE id = ?").get(userId);
+    const existingUser: any = db.prepare("SELECT id, name, role FROM users WHERE id = ?").get(userId);
 
     if (!existingUser) {
       return res.sendStatus(404);
@@ -786,19 +824,21 @@ async function startServer() {
       return res.status(400).json({ error: 'Name cannot be empty' });
     }
 
+    const isFaculty = existingUser.role === 'faculty';
+    const subjectVal = isFaculty ? (String(subject || '').trim() || null) : null;
+    const teachingYearsVal = isFaculty ? (String(teaching_years || '').trim() || null) : null;
+
     try {
       if (password) {
-        // Update with password
         const hashedPassword = await bcrypt.hash(password, 10);
-        db.prepare("UPDATE users SET name = ?, dept = ?, year = ?, sem = ?, password = ? WHERE id = ?")
-          .run(normalizedName, normalizedDept, year, sem, hashedPassword, userId);
+        db.prepare("UPDATE users SET name = ?, dept = ?, year = ?, sem = ?, password = ?, subject = ?, teaching_years = ? WHERE id = ?")
+          .run(normalizedName, normalizedDept, year, sem, hashedPassword, subjectVal, teachingYearsVal, userId);
       } else {
-        // Update without password
-        db.prepare("UPDATE users SET name = ?, dept = ?, year = ?, sem = ? WHERE id = ?")
-          .run(normalizedName, normalizedDept, year, sem, userId);
+        db.prepare("UPDATE users SET name = ?, dept = ?, year = ?, sem = ?, subject = ?, teaching_years = ? WHERE id = ?")
+          .run(normalizedName, normalizedDept, year, sem, subjectVal, teachingYearsVal, userId);
       }
 
-      const updatedUser: any = db.prepare("SELECT id, name, email, role, reg_no, dept, year, sem FROM users WHERE id = ?").get(userId);
+      const updatedUser: any = db.prepare("SELECT id, name, email, role, reg_no, dept, year, sem, subject, teaching_years FROM users WHERE id = ?").get(userId);
       res.json({ success: true, user: normalizeUserRecord(updatedUser) });
     } catch (error) {
       res.status(400).json({ error: "Failed to update profile" });

@@ -21,6 +21,8 @@ interface FacultyRow {
   name: string;
   email: string;
   dept?: string;
+  subject?: string;
+  teaching_years?: string;
   totalQuizzes: number;
   totalSubmissions: number;
   avgScore: number;
@@ -66,7 +68,7 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
   const [quizRows, setQuizRows] = useState<QuizAuditRow[]>([]);
   const [studentRows, setStudentRows] = useState<StudentRow[]>([]);
   const [editingFacultyId, setEditingFacultyId] = useState<number | null>(null);
-  const [editForm, setEditForm] = useState({ name: '', email: '', dept: 'CSE' });
+  const [editForm, setEditForm] = useState({ name: '', email: '', dept: 'CSE', subject: '', teaching_years: '' });
 
   const selectedFaculty = useMemo(
     () => facultyRows.find((f) => f.id === editingFacultyId) || null,
@@ -139,6 +141,8 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
       name: faculty.name,
       email: faculty.email,
       dept: faculty.dept || 'CSE',
+      subject: faculty.subject || '',
+      teaching_years: faculty.teaching_years || '',
     });
   };
 
@@ -298,6 +302,7 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
                     <tr>
                       <th>Name</th>
                       <th>Department</th>
+                      <th>Subjects / Years</th>
                       <th>Performance</th>
                       <th>Actions</th>
                     </tr>
@@ -310,6 +315,16 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
                           <div className="text-xs text-slate-500">{faculty.email}</div>
                         </td>
                         <td>{faculty.dept || '-'}</td>
+                        <td>
+                          <div className="text-xs text-slate-700 font-medium">
+                            {faculty.subject || <span className="text-slate-400 italic">No subject set</span>}
+                          </div>
+                          {faculty.teaching_years && (
+                            <div className="text-xs text-emerald-600 mt-0.5">
+                              Years: {faculty.teaching_years}
+                            </div>
+                          )}
+                        </td>
                         <td>
                           <div className="text-xs text-slate-600">
                             {faculty.totalQuizzes} quizzes • {faculty.totalSubmissions} submissions • Avg{' '}
@@ -395,6 +410,47 @@ export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) 
                     <option value="ME">ME</option>
                     <option value="CE">CE</option>
                   </select>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Subject(s) Handling</label>
+                  <input
+                    value={editForm.subject}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, subject: e.target.value }))}
+                    placeholder="e.g. Data Structures, OS"
+                    className="form-input min-h-[44px]"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Comma-separated list of subjects</p>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Year(s) / Class Handling</label>
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    {['1st', '2nd', '3rd', '4th'].map((yr) => {
+                      const selected = editForm.teaching_years.split(',').map((y) => y.trim()).filter(Boolean).includes(yr);
+                      return (
+                        <button
+                          key={yr}
+                          type="button"
+                          onClick={() => {
+                            const current = editForm.teaching_years.split(',').map((y) => y.trim()).filter(Boolean);
+                            const updated = selected
+                              ? current.filter((y) => y !== yr)
+                              : [...current, yr];
+                            setEditForm((prev) => ({ ...prev, teaching_years: updated.join(', ') }));
+                          }}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                            selected
+                              ? 'bg-emerald-600 text-white border-emerald-600'
+                              : 'bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-100'
+                          }`}
+                        >
+                          {yr} Year
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">Select year(s) this faculty handles</p>
                 </div>
 
                 <div className="flex gap-2">

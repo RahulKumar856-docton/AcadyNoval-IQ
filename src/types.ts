@@ -9,6 +9,8 @@ export interface User {
   dept?: string;
   year?: string;
   sem?: string;
+  subject?: string;   // faculty: subject(s) they teach
+  teaching_years?: string; // faculty: year(s) they handle e.g. "2nd,3rd"
 }
 
 export interface Question {

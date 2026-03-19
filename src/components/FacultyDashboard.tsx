@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BarChart3, CheckCircle2, LogOut, Play, PlusCircle, Trash2, Users, ChevronDown, Award, Clock, Target, Sparkles, TrendingUp, UserIcon, FileText } from 'lucide-react';
-import { User, Quiz } from '../types';
+import { BarChart3, BookOpen, CheckCircle2, LogOut, Play, PlusCircle, Trash2, Users, ChevronDown, Award, Clock, Target, Sparkles, TrendingUp, UserIcon, FileText } from 'lucide-react';
+import { User, Quiz, StudyTopic } from '../types';
 import { api, socket } from '../services/api';
 
 interface FacultyDashboardProps {
@@ -59,6 +59,19 @@ export default function FacultyDashboard({ user, onLogout }: FacultyDashboardPro
   const [submissions, setSubmissions] = useState<SubmissionRow[]>([]);
   const [expandedQuiz, setExpandedQuiz] = useState<string | null>(null);
   const [expandedSubmission, setExpandedSubmission] = useState<string | null>(null);
+  const [studyTopics, setStudyTopics] = useState<StudyTopic[]>([]);
+  const [studyLoading, setStudyLoading] = useState(false);
+  const [creatingStudyTopic, setCreatingStudyTopic] = useState(false);
+  const [newStudyTopic, setNewStudyTopic] = useState({
+    title: '',
+    content: '',
+    topicType: 'both' as 'ssa' | 'quiz' | 'both',
+    isGeneral: true,
+    dept: user.dept || 'CSE',
+    year: teachingYears[0] || '1st',
+    sem: '1st',
+    quizId: '',
+  });
 
   const getSubmissionAnswer = (submission: SubmissionRow, questionId: string, questionIndex: number) => {
     if (!submission.answers) return undefined;
@@ -121,6 +134,7 @@ export default function FacultyDashboard({ user, onLogout }: FacultyDashboardPro
 
   useEffect(() => {
     void refreshQuizzes();
+    void refreshStudyTopics();
 
     // Listen for quiz submissions
     socket.on('quiz:submitted', ({ quizId }: { quizId: string }) => {
@@ -146,6 +160,19 @@ export default function FacultyDashboard({ user, onLogout }: FacultyDashboardPro
       alert('Failed to load quizzes.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const refreshStudyTopics = async () => {
+    try {
+      setStudyLoading(true);
+      const data = await api.getStudyTopics();
+      setStudyTopics(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to load study topics.');
+    } finally {
+      setStudyLoading(false);
     }
   };
 
@@ -260,6 +287,55 @@ export default function FacultyDashboard({ user, onLogout }: FacultyDashboardPro
     } catch (err) {
       console.error(err);
       alert('Failed to publish results.');
+    }
+  };
+
+  const handleCreateStudyTopic = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newStudyTopic.title.trim() || !newStudyTopic.content.trim()) {
+      alert('Enter study topic title and content.');
+      return;
+    }
+
+    try {
+      setCreatingStudyTopic(true);
+      await api.createStudyTopic({
+        title: newStudyTopic.title,
+        content: newStudyTopic.content,
+        topicType: newStudyTopic.topicType,
+        isGeneral: newStudyTopic.isGeneral,
+        dept: newStudyTopic.isGeneral ? undefined : newStudyTopic.dept,
+        year: newStudyTopic.isGeneral ? undefined : newStudyTopic.year,
+        sem: newStudyTopic.isGeneral ? undefined : newStudyTopic.sem,
+        quizId: newStudyTopic.quizId ? Number(newStudyTopic.quizId) : null,
+      });
+
+      setNewStudyTopic((prev) => ({
+        ...prev,
+        title: '',
+        content: '',
+        topicType: 'both',
+        isGeneral: true,
+        quizId: '',
+      }));
+      await refreshStudyTopics();
+    } catch (err) {
+      console.error(err);
+      alert('Failed to create study topic.');
+    } finally {
+      setCreatingStudyTopic(false);
+    }
+  };
+
+  const handleDeleteStudyTopic = async (id: number) => {
+    if (!confirm('Delete this study topic?')) return;
+
+    try {
+      await api.deleteStudyTopic(id);
+      await refreshStudyTopics();
+    } catch (err) {
+      console.error(err);
+      alert('Failed to delete study topic.');
     }
   };
 
@@ -815,8 +891,190 @@ export default function FacultyDashboard({ user, onLogout }: FacultyDashboardPro
             )}
           </section>
 
-          {/* Submissions Table */}
           <section className="content-card reveal delay-6 lg:col-span-12">
+            <div className="card-header mb-6">
+              <div className="card-title-group">
+                <div className="card-icon-wrapper">
+                  <BookOpen size={22} className="text-emerald-600" />
+                </div>
+                <div>
+                  <h2 className="card-title">Study Topics for SSA & Quiz</h2>
+                  <p className="card-subtitle">Upload learning topics after performance review</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <form onSubmit={handleCreateStudyTopic} className="space-y-3 rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
+                <div className="form-group !mb-0">
+                  <label className="form-label">Topic Title</label>
+                  <input
+                    value={newStudyTopic.title}
+                    onChange={(e) => setNewStudyTopic((prev) => ({ ...prev, title: e.target.value }))}
+                    placeholder="e.g. SSA: Arrays Time Complexity"
+                    className="form-input min-h-[44px]"
+                  />
+                </div>
+
+                <div className="form-group !mb-0">
+                  <label className="form-label">Learning Content</label>
+                  <textarea
+                    value={newStudyTopic.content}
+                    onChange={(e) => setNewStudyTopic((prev) => ({ ...prev, content: e.target.value }))}
+                    placeholder="Share notes, practice steps, and what to revise for SSA/Quiz improvement."
+                    className="form-input min-h-[120px]"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="form-group !mb-0">
+                    <label className="form-label">For</label>
+                    <select
+                      value={newStudyTopic.topicType}
+                      onChange={(e) => setNewStudyTopic((prev) => ({ ...prev, topicType: e.target.value as 'ssa' | 'quiz' | 'both' }))}
+                      className="form-select min-h-[44px]"
+                    >
+                      <option value="both">SSA + Quiz</option>
+                      <option value="ssa">SSA only</option>
+                      <option value="quiz">Quiz only</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group !mb-0">
+                    <label className="form-label">Related Quiz (optional)</label>
+                    <select
+                      value={newStudyTopic.quizId}
+                      onChange={(e) => setNewStudyTopic((prev) => ({ ...prev, quizId: e.target.value }))}
+                      className="form-select min-h-[44px]"
+                    >
+                      <option value="">No specific quiz</option>
+                      {quizzes.map((quiz) => (
+                        <option key={quiz.id} value={quiz.id}>
+                          {quiz.title}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="form-group !mb-0">
+                  <label className="flex items-center gap-2 cursor-pointer group">
+                    <input
+                      type="checkbox"
+                      checked={newStudyTopic.isGeneral}
+                      onChange={(e) => setNewStudyTopic((prev) => ({ ...prev, isGeneral: e.target.checked }))}
+                      className="w-5 h-5 text-emerald-600 border-emerald-300 rounded focus:ring-emerald-500 focus:ring-2 cursor-pointer"
+                    />
+                    <span className="form-label mb-0 group-hover:text-emerald-700 transition-colors">
+                      Share with all students
+                    </span>
+                  </label>
+                </div>
+
+                {!newStudyTopic.isGeneral && (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="form-group !mb-0">
+                      <label className="form-label">Department</label>
+                      <select
+                        value={newStudyTopic.dept}
+                        onChange={(e) => setNewStudyTopic((prev) => ({ ...prev, dept: e.target.value }))}
+                        className="form-select min-h-[44px]"
+                      >
+                        <option value="CSE">CSE</option>
+                        <option value="IT">IT</option>
+                        <option value="SE">SE</option>
+                        <option value="ISE">ISE</option>
+                        <option value="ECE">ECE</option>
+                        <option value="EE">EE</option>
+                        <option value="ME">ME</option>
+                        <option value="CE">CE</option>
+                      </select>
+                    </div>
+                    <div className="form-group !mb-0">
+                      <label className="form-label">Year</label>
+                      <select
+                        value={newStudyTopic.year}
+                        onChange={(e) => setNewStudyTopic((prev) => ({ ...prev, year: e.target.value }))}
+                        className="form-select min-h-[44px]"
+                      >
+                        <option value="1st">1st</option>
+                        <option value="2nd">2nd</option>
+                        <option value="3rd">3rd</option>
+                        <option value="4th">4th</option>
+                      </select>
+                    </div>
+                    <div className="form-group !mb-0">
+                      <label className="form-label">Semester</label>
+                      <select
+                        value={newStudyTopic.sem}
+                        onChange={(e) => setNewStudyTopic((prev) => ({ ...prev, sem: e.target.value }))}
+                        className="form-select min-h-[44px]"
+                      >
+                        <option value="1st">1st</option>
+                        <option value="2nd">2nd</option>
+                        <option value="3rd">3rd</option>
+                        <option value="4th">4th</option>
+                        <option value="5th">5th</option>
+                        <option value="6th">6th</option>
+                        <option value="7th">7th</option>
+                        <option value="8th">8th</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={creatingStudyTopic}
+                  className="btn-primary w-full min-h-[44px] inline-flex items-center justify-center gap-2"
+                >
+                  <PlusCircle size={16} /> {creatingStudyTopic ? 'Uploading Topic...' : 'Upload Study Topic'}
+                </button>
+              </form>
+
+              <div className="space-y-3 max-h-[30rem] overflow-y-auto pr-1">
+                {studyLoading ? (
+                  <div className="loading-state">
+                    <div className="loading-spinner" />
+                    <span>Loading study topics...</span>
+                  </div>
+                ) : studyTopics.length === 0 ? (
+                  <div className="empty-state">
+                    <div className="empty-state-icon">📘</div>
+                    <h3 className="empty-state-title">No Study Topics Yet</h3>
+                    <p className="empty-state-description">Add focused guidance after evaluating student performance.</p>
+                  </div>
+                ) : (
+                  studyTopics.map((topic) => (
+                    <article key={topic.id} className="rounded-xl border border-emerald-200 bg-white p-4 space-y-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <h3 className="font-semibold text-slate-800">{topic.title}</h3>
+                          <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-slate-600">
+                            <span className="badge badge-primary">{topic.topicType.toUpperCase()}</span>
+                            {topic.quizTitle && <span>Quiz: {topic.quizTitle}</span>}
+                            {!topic.isGeneral && topic.dept && topic.year && topic.sem && (
+                              <span>{topic.dept} • {topic.year} Year • Sem {topic.sem}</span>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleDeleteStudyTopic(topic.id)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 text-xs font-semibold"
+                        >
+                          <Trash2 size={14} /> Delete
+                        </button>
+                      </div>
+                      <p className="text-sm text-slate-700 whitespace-pre-wrap">{topic.content}</p>
+                    </article>
+                  ))
+                )}
+              </div>
+            </div>
+          </section>
+
+          {/* Submissions Table */}
+          <section className="content-card reveal delay-7 lg:col-span-12">
           <div className="card-header mb-6">
             <div className="card-title-group">
               <div className="card-icon-wrapper">

@@ -41,6 +41,18 @@ export const api = {
   launchQuiz: (id: string) => fetchWithAuth(`/api/quizzes/${id}/launch`, { method: "POST" }),
   publishResults: (id: string) => fetchWithAuth(`/api/quizzes/${id}/publish-results`, { method: "POST" }),
   deleteQuiz: (id: string) => fetchWithAuth(`/api/quizzes/${id}`, { method: "DELETE" }),
+  getStudyTopics: () => fetchWithAuth('/api/study-topics'),
+  createStudyTopic: (data: {
+    title: string;
+    content: string;
+    topicType: 'ssa' | 'quiz' | 'both';
+    isGeneral?: boolean;
+    dept?: string;
+    year?: string;
+    sem?: string;
+    quizId?: number | null;
+  }) => fetchWithAuth('/api/study-topics', { method: 'POST', body: JSON.stringify(data) }),
+  deleteStudyTopic: (id: number) => fetchWithAuth(`/api/study-topics/${id}`, { method: 'DELETE' }),
   getAdminOverview: () => fetchWithAuth('/api/admin/overview'),
   getAdminFaculty: () => fetchWithAuth('/api/admin/faculty'),
   getAdminStudents: () => fetchWithAuth('/api/admin/students'),

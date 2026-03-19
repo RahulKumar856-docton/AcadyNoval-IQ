@@ -12,7 +12,7 @@ import {
   Trophy,
   User as UserIcon,
 } from 'lucide-react';
-import { Quiz, StudentStats, User } from '../types';
+import { Quiz, StudentStats, StudyTopic, User } from '../types';
 import { api, socket } from '../services/api';
 
 interface StudentDashboardProps {
@@ -25,8 +25,10 @@ export default function StudentDashboard({ user, onLogout }: StudentDashboardPro
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [stats, setStats] = useState<StudentStats>({ totalQuizzes: 0, avgScore: 0 });
   const [loading, setLoading] = useState(true);
+  const [studyLoading, setStudyLoading] = useState(true);
   const [submittingId, setSubmittingId] = useState<string | null>(null);
   const [hoveredQuiz, setHoveredQuiz] = useState<string | null>(null);
+  const [studyTopics, setStudyTopics] = useState<StudyTopic[]>([]);
 
   const [activeQuiz, setActiveQuiz] = useState<Quiz | null>(null);
   const [answers, setAnswers] = useState<Record<string, number>>({});
@@ -75,18 +77,25 @@ export default function StudentDashboard({ user, onLogout }: StudentDashboardPro
   const loadData = async () => {
     try {
       setLoading(true);
-      const [quizData, statsData] = await Promise.all([api.getQuizzes(), api.getStudentStats()]);
+      setStudyLoading(true);
+      const [quizData, statsData, studyData] = await Promise.all([
+        api.getQuizzes(),
+        api.getStudentStats(),
+        api.getStudyTopics(),
+      ]);
       setQuizzes(Array.isArray(quizData) ? quizData : []);
       setStats(
         statsData && typeof statsData === 'object'
           ? statsData
           : { totalQuizzes: 0, avgScore: 0 }
       );
+      setStudyTopics(Array.isArray(studyData) ? studyData : []);
     } catch (err) {
       console.error(err);
       alert('Failed to load student data.');
     } finally {
       setLoading(false);
+      setStudyLoading(false);
     }
   };
 
@@ -272,7 +281,93 @@ export default function StudentDashboard({ user, onLogout }: StudentDashboardPro
         </section>
 
         {!activeQuiz && (
-          <section className="content-card reveal delay-4">
+          <section className="content-card reveal delay-4 mb-8">
+            <div className="card-header">
+              <div className="card-title-group">
+                <div className="card-icon-wrapper">
+                  <BookOpen size={22} className="text-emerald-600" />
+                </div>
+                <div>
+                  <h2 className="card-title">Study Topics for SSA & Quiz</h2>
+                  <p className="card-subtitle">Faculty guidance based on class performance</p>
+                </div>
+              </div>
+              <div className="card-header-badge">
+                <span className="badge badge-primary">{studyTopics.length} Topics</span>
+              </div>
+            </div>
+
+            {studyLoading ? (
+              <div className="loading-state">
+                <div className="loading-spinner" />
+                <span>Loading study topics...</span>
+              </div>
+            ) : studyTopics.length === 0 ? (
+              <div className="empty-state">
+                <div className="empty-state-icon">📘</div>
+                <h3 className="empty-state-title">No Study Topics Yet</h3>
+                <p className="empty-state-description">Your faculty will upload recommended topics after evaluating performance.</p>
+              </div>
+            ) : (
+              <div className="quiz-list">
+                {studyTopics.map((topic) => {
+                  const relatedSubmitted = (topic.studentSubmitted || 0) > 0;
+                  const relatedScore = topic.myScore ?? null;
+                  const needsFocus = relatedSubmitted && relatedScore !== null && relatedScore < 70;
+
+                  return (
+                    <article key={topic.id} className={`quiz-card reveal-pop ${needsFocus ? 'ring-2 ring-amber-300' : ''}`}>
+                      <div className="quiz-card-content">
+                        <div className="quiz-info">
+                          <h3 className="quiz-title">{topic.title}</h3>
+                          <div className="quiz-meta">
+                            <span className="quiz-badge dept-badge">{topic.topicType.toUpperCase()}</span>
+                            {topic.quizTitle && (
+                              <>
+                                <span className="quiz-meta-separator">•</span>
+                                <span className="quiz-meta-text">Related Quiz: {topic.quizTitle}</span>
+                              </>
+                            )}
+                            {relatedSubmitted && relatedScore !== null && (
+                              <>
+                                <span className="quiz-meta-separator">•</span>
+                                <span className={`quiz-meta-text ${relatedScore < 70 ? 'text-orange-700 font-semibold' : 'text-emerald-700 font-semibold'}`}>
+                                  Your Score: {relatedScore}%
+                                </span>
+                              </>
+                            )}
+                            {topic.facultyName && (
+                              <>
+                                <span className="quiz-meta-separator">•</span>
+                                <span className="quiz-meta-text">By {topic.facultyName}</span>
+                              </>
+                            )}
+                          </div>
+                          <p className="mt-2 text-sm text-slate-700 whitespace-pre-wrap">{topic.content}</p>
+                        </div>
+
+                        <div className="flex flex-col items-start sm:items-end gap-2">
+                          {needsFocus ? (
+                            <span className="badge bg-amber-100 text-amber-700 border-amber-200">
+                              <Sparkles size={12} /> Focus Recommended
+                            </span>
+                          ) : (
+                            <span className="badge badge-success">
+                              <CheckCircle2 size={12} /> Keep Practicing
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        )}
+
+        {!activeQuiz && (
+          <section className="content-card reveal delay-5">
             <div className="card-header">
               <div className="card-title-group">
                 <div className="card-icon-wrapper">

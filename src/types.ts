@@ -71,3 +71,20 @@ export interface StudentSubmission {
   questions: Question[];
   answers: Record<string, number>;
 }
+
+export interface StudyTopic {
+  id: number;
+  title: string;
+  content: string;
+  topicType: 'ssa' | 'quiz' | 'both';
+  dept?: string | null;
+  year?: string | null;
+  sem?: string | null;
+  isGeneral?: number;
+  quizId?: number | null;
+  quizTitle?: string | null;
+  createdAt: string;
+  facultyName?: string;
+  studentSubmitted?: number;
+  myScore?: number | null;
+}

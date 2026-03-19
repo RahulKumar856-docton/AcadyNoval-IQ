@@ -185,6 +185,22 @@ db.exec(`
     FOREIGN KEY (quiz_id) REFERENCES quizzes(id),
     FOREIGN KEY (student_id) REFERENCES users(id)
   );
+
+  CREATE TABLE IF NOT EXISTS study_topics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    faculty_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    topic_type TEXT DEFAULT 'both', -- ssa | quiz | both
+    dept TEXT,
+    year TEXT,
+    sem TEXT,
+    is_general INTEGER DEFAULT 1,
+    quiz_id INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (faculty_id) REFERENCES users(id),
+    FOREIGN KEY (quiz_id) REFERENCES quizzes(id)
+  );
 `);
 
 try {
@@ -228,6 +244,24 @@ try {
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_students_reg_no ON users(reg_no) WHERE role = 'student' AND reg_no IS NOT NULL");
 } catch (e) {
   // Index already exists
+}
+
+try {
+  db.exec("ALTER TABLE study_topics ADD COLUMN topic_type TEXT DEFAULT 'both'");
+} catch (e) {
+  // Column already exists
+}
+
+try {
+  db.exec("ALTER TABLE study_topics ADD COLUMN is_general INTEGER DEFAULT 1");
+} catch (e) {
+  // Column already exists
+}
+
+try {
+  db.exec("ALTER TABLE study_topics ADD COLUMN quiz_id INTEGER");
+} catch (e) {
+  // Column already exists
 }
 
 for (const [legacyCode, canonicalCode] of Object.entries(DEPARTMENT_ALIASES)) {
@@ -481,6 +515,102 @@ async function startServer() {
     `).all();
 
     res.json(students);
+  });
+
+  app.post('/api/study-topics', authenticateToken, (req: any, res) => {
+    if (req.user.role !== 'faculty') return res.sendStatus(403);
+
+    const title = String(req.body?.title || '').trim();
+    const content = String(req.body?.content || '').trim();
+    const rawTopicType = String(req.body?.topicType || 'both').trim().toLowerCase();
+    const topicType = ['ssa', 'quiz', 'both'].includes(rawTopicType) ? rawTopicType : 'both';
+    const isGeneral = req.body?.isGeneral === false ? 0 : 1;
+    const dept = isGeneral ? null : normalizeDepartment(req.body?.dept || req.user.dept);
+    const year = isGeneral ? null : (String(req.body?.year || '').trim() || null);
+    const sem = isGeneral ? null : (String(req.body?.sem || '').trim() || null);
+    const quizId = req.body?.quizId ? Number(req.body.quizId) : null;
+
+    if (!title || !content) {
+      return res.status(400).json({ error: 'Title and content are required' });
+    }
+
+    if (quizId) {
+      const quiz = db.prepare('SELECT id FROM quizzes WHERE id = ? AND faculty_id = ?').get(quizId, req.user.id);
+      if (!quiz) {
+        return res.status(400).json({ error: 'Invalid related quiz selected' });
+      }
+    }
+
+    const result = db.prepare(
+      `INSERT INTO study_topics (faculty_id, title, content, topic_type, dept, year, sem, is_general, quiz_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(req.user.id, title, content, topicType, dept, year, sem, isGeneral, quizId);
+
+    const created: any = db.prepare(
+      `SELECT st.id, st.title, st.content, st.topic_type as topicType, st.dept, st.year, st.sem,
+              st.is_general as isGeneral, st.quiz_id as quizId, st.created_at as createdAt,
+              q.title as quizTitle
+       FROM study_topics st
+       LEFT JOIN quizzes q ON q.id = st.quiz_id
+       WHERE st.id = ?`
+    ).get(result.lastInsertRowid);
+
+    io.emit('study-topic:created', created);
+    res.json(created);
+  });
+
+  app.get('/api/study-topics', authenticateToken, (req: any, res) => {
+    if (req.user.role === 'faculty') {
+      const topics = db.prepare(
+        `SELECT st.id, st.title, st.content, st.topic_type as topicType, st.dept, st.year, st.sem,
+                st.is_general as isGeneral, st.quiz_id as quizId, st.created_at as createdAt,
+                q.title as quizTitle
+         FROM study_topics st
+         LEFT JOIN quizzes q ON q.id = st.quiz_id
+         WHERE st.faculty_id = ?
+         ORDER BY st.created_at DESC, st.id DESC`
+      ).all(req.user.id);
+
+      return res.json(topics);
+    }
+
+    const topics = db.prepare(
+      `SELECT st.id, st.title, st.content, st.topic_type as topicType, st.dept, st.year, st.sem,
+              st.is_general as isGeneral, st.quiz_id as quizId, st.created_at as createdAt,
+              q.title as quizTitle,
+              (SELECT COUNT(*) FROM submissions s WHERE s.quiz_id = st.quiz_id AND s.student_id = ?) as studentSubmitted,
+              (SELECT score FROM submissions s WHERE s.quiz_id = st.quiz_id AND s.student_id = ? LIMIT 1) as myScore,
+              q.results_published as resultsPublished,
+              u.name as facultyName
+       FROM study_topics st
+       JOIN users u ON u.id = st.faculty_id
+       LEFT JOIN quizzes q ON q.id = st.quiz_id
+       WHERE st.is_general = 1
+         OR (COALESCE(st.dept, '') = COALESCE(?, '') AND COALESCE(st.year, '') = COALESCE(?, '') AND COALESCE(st.sem, '') = COALESCE(?, ''))
+       ORDER BY st.created_at DESC, st.id DESC`
+    ).all(req.user.id, req.user.id, normalizeDepartment(req.user.dept), req.user.year, req.user.sem);
+
+    const formatted = topics.map((topic: any) => ({
+      ...topic,
+      myScore: topic.resultsPublished === 1 ? topic.myScore : null,
+    }));
+
+    res.json(formatted);
+  });
+
+  app.delete('/api/study-topics/:id', authenticateToken, (req: any, res) => {
+    if (req.user.role !== 'faculty') return res.sendStatus(403);
+    const topicId = Number(req.params.id);
+    if (!topicId) {
+      return res.status(400).json({ error: 'Invalid study topic id' });
+    }
+
+    const result = db.prepare('DELETE FROM study_topics WHERE id = ? AND faculty_id = ?').run(topicId, req.user.id);
+    if (result.changes > 0) {
+      return res.json({ success: true });
+    }
+
+    res.sendStatus(404);
   });
 
   // Quiz Routes

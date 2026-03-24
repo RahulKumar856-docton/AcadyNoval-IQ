@@ -1,0 +1,793 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { BarChart3, Building2, LogOut, Pencil, RefreshCw, ShieldCheck, Trash2, Users } from 'lucide-react';
+import { User } from '../types';
+import { api, socket } from '../services/api';
+
+interface AdminDashboardProps {
+  user: User;
+  onLogout: () => void;
+}
+
+interface AdminOverview {
+  totalFaculty: number;
+  totalStudents: number;
+  totalQuizzes: number;
+  totalSubmissions: number;
+  liveQuizzes: number;
+}
+
+interface FacultyRow {
+  id: number;
+  name: string;
+  email: string;
+  dept?: string;
+  subject?: string;
+  teaching_years?: string;
+  totalQuizzes: number;
+  totalSubmissions: number;
+  avgScore: number;
+}
+
+interface QuizAuditRow {
+  id: number;
+  title: string;
+  status: string;
+  dept?: string;
+  year?: string;
+  sem?: string;
+  isGeneral?: number;
+  facultyName: string;
+  submissions: number;
+  avgScore: number;
+}
+
+interface StudentRow {
+  id: number;
+  name: string;
+  email: string;
+  dept?: string;
+  year?: string;
+  sem?: string;
+  reg_no?: string;
+  totalSubmissions: number;
+  avgScore: number;
+}
+
+export default function AdminDashboard({ user, onLogout }: AdminDashboardProps) {
+  const [loading, setLoading] = useState(true);
+  const [savingId, setSavingId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [overview, setOverview] = useState<AdminOverview>({
+    totalFaculty: 0,
+    totalStudents: 0,
+    totalQuizzes: 0,
+    totalSubmissions: 0,
+    liveQuizzes: 0,
+  });
+  const [facultyRows, setFacultyRows] = useState<FacultyRow[]>([]);
+  const [quizRows, setQuizRows] = useState<QuizAuditRow[]>([]);
+  const [studentRows, setStudentRows] = useState<StudentRow[]>([]);
+  const [editingFacultyId, setEditingFacultyId] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState({ name: '', email: '', dept: 'CSE' });
+  const [editSubjectsByYear, setEditSubjectsByYear] = useState<Record<string, string>>({});
+  const [selectedFacultyDept, setSelectedFacultyDept] = useState<string>('all');
+  const [selectedStudentDept, setSelectedStudentDept] = useState<string>('all');
+
+  const parseSubjectsByYear = (raw?: string): Record<string, string> => {
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+    } catch {}
+    return {};
+  };
+
+  const selectedFaculty = useMemo(
+    () => facultyRows.find((f) => f.id === editingFacultyId) || null,
+    [editingFacultyId, facultyRows]
+  );
+
+  const filteredFaculty = useMemo(
+    () => selectedFacultyDept === 'all' ? facultyRows : facultyRows.filter(f => f.dept === selectedFacultyDept),
+    [facultyRows, selectedFacultyDept]
+  );
+
+  const filteredStudents = useMemo(
+    () => selectedStudentDept === 'all' ? studentRows : studentRows.filter(s => s.dept === selectedStudentDept),
+    [studentRows, selectedStudentDept]
+  );
+
+  useEffect(() => {
+    void loadAdminData();
+
+    // Listen for quiz deleted event
+    socket.on('quiz:deleted', () => {
+      void loadAdminData();
+    });
+
+    // Listen for quiz submitted event
+    socket.on('quiz:submitted', () => {
+      void loadAdminData();
+    });
+
+    // Listen for quiz launched event
+    socket.on('quiz:launched', () => {
+      void loadAdminData();
+    });
+
+    // Listen for new users created from any device/session
+    socket.on('user:created', () => {
+      void loadAdminData();
+    });
+
+    return () => {
+      socket.off('quiz:deleted');
+      socket.off('quiz:submitted');
+      socket.off('quiz:launched');
+      socket.off('user:created');
+    };
+  }, []);
+
+  const loadAdminData = async () => {
+    try {
+      setLoading(true);
+      const [overviewData, facultyData, studentData, quizzesData] = await Promise.all([
+        api.getAdminOverview(),
+        api.getAdminFaculty(),
+        api.getAdminStudents(),
+        api.getAdminQuizzes(),
+      ]);
+
+      setOverview({
+        totalFaculty: Number(overviewData?.totalFaculty || 0),
+        totalStudents: Number(overviewData?.totalStudents || 0),
+        totalQuizzes: Number(overviewData?.totalQuizzes || 0),
+        totalSubmissions: Number(overviewData?.totalSubmissions || 0),
+        liveQuizzes: Number(overviewData?.liveQuizzes || 0),
+      });
+
+      setFacultyRows(Array.isArray(facultyData) ? facultyData : []);
+      setStudentRows(Array.isArray(studentData) ? studentData : []);
+      setQuizRows(Array.isArray(quizzesData) ? quizzesData : []);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to load admin data.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const startEditFaculty = (faculty: FacultyRow) => {
+    setEditingFacultyId(faculty.id);
+    setEditForm({
+      name: faculty.name,
+      email: faculty.email,
+      dept: faculty.dept || 'CSE',
+    });
+    setEditSubjectsByYear(parseSubjectsByYear(faculty.subject));
+  };
+
+  const saveFaculty = async () => {
+    if (!editingFacultyId) return;
+
+    if (!editForm.name.trim() || !editForm.email.trim()) {
+      alert('Name and email are required.');
+      return;
+    }
+
+    try {
+      setSavingId(editingFacultyId);
+      await api.updateAdminFaculty(editingFacultyId, {
+        ...editForm,
+        subject: Object.keys(editSubjectsByYear).length > 0 ? JSON.stringify(editSubjectsByYear) : undefined,
+        teaching_years: Object.keys(editSubjectsByYear).join(', ') || undefined,
+      });
+      setEditingFacultyId(null);
+      await loadAdminData();
+    } catch (err: any) {
+      console.error(err);
+      alert(err?.message || 'Failed to update faculty.');
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const deleteFaculty = async (faculty: FacultyRow) => {
+    const shouldDelete = window.confirm(
+      `Delete faculty \"${faculty.name}\" and all their quizzes/submissions? This cannot be undone.`
+    );
+    if (!shouldDelete) return;
+
+    try {
+      setDeletingId(faculty.id);
+      await api.deleteAdminFaculty(faculty.id);
+      if (editingFacultyId === faculty.id) {
+        setEditingFacultyId(null);
+      }
+      await loadAdminData();
+    } catch (err: any) {
+      console.error(err);
+      alert(err?.message || 'Failed to delete faculty.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const deleteStudent = async (student: StudentRow) => {
+    const shouldDelete = window.confirm(
+      `Delete student \"${student.name}\" (${student.email}) and all their submissions? This cannot be undone.`
+    );
+    if (!shouldDelete) return;
+
+    try {
+      setDeletingId(student.id);
+      await api.deleteAdminStudent(student.id);
+      await loadAdminData();
+    } catch (err: any) {
+      console.error(err);
+      alert(err?.message || 'Failed to delete student.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const cleanupNonMkceStudents = async () => {
+    const shouldDelete = window.confirm(
+      `This will delete all students whose email domain is NOT '@mkce.*' and all their submissions. This cannot be undone. Continue?`
+    );
+    if (!shouldDelete) return;
+
+    try {
+      setLoading(true);
+      const result = await api.cleanupNonMkceStudents();
+      alert(`Successfully removed ${result.deletedCount} non-MKCE domain students.`);
+      await loadAdminData();
+    } catch (err: any) {
+      console.error(err);
+      alert(err?.message || 'Failed to cleanup students.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteQuiz = async (quiz: QuizAuditRow) => {
+    const shouldDelete = window.confirm(
+      `Delete quiz \"${quiz.title}\" and all its submissions? This cannot be undone.`
+    );
+    if (!shouldDelete) return;
+
+    try {
+      setDeletingId(quiz.id);
+      await api.deleteQuiz(quiz.id.toString());
+      await loadAdminData();
+    } catch (err: any) {
+      console.error(err);
+      alert(err?.message || 'Failed to delete quiz.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  return (
+    <div className="landing-shell min-h-screen">
+      <div className="ambient-blob blob-a" />
+      <div className="ambient-blob blob-b" />
+      <div className="ambient-blob blob-c" />
+
+      <div className="dashboard-container">
+        <header className="glass-header-card reveal mb-8">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="space-y-3">
+              <span className="badge badge-success">
+                <ShieldCheck size={14} /> Admin Console
+              </span>
+              <div>
+                <h1 className="hero-title">
+                  Admin <span className="text-gradient">Dashboard</span>
+                </h1>
+                <p className="hero-subtitle mt-2">
+                  Welcome back, <span className="font-semibold text-emerald-700">{user.name}</span>. Monitor the
+                  platform and manage faculty records.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-2 w-full sm:w-auto">
+              <button
+                onClick={() => void loadAdminData()}
+                className="btn-secondary inline-flex items-center justify-center gap-2 min-h-[44px]"
+              >
+                <RefreshCw size={16} /> Refresh
+              </button>
+              <button
+                onClick={onLogout}
+                className="btn-outline-danger inline-flex items-center justify-center gap-2 min-h-[44px]"
+              >
+                <LogOut size={16} /> Logout
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <section className="stats-grid mb-8">
+          <div className="stat-card reveal delay-1">
+            <div className="stat-icon-wrapper bg-blue-100 text-blue-600">
+              <Users size={20} />
+            </div>
+            <div className="stat-content">
+              <span className="stat-label">Total Faculty</span>
+              <div className="stat-value-group">
+                <span className="stat-value">{overview.totalFaculty}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="stat-card reveal delay-2">
+            <div className="stat-icon-wrapper bg-emerald-100 text-emerald-600">
+              <Building2 size={20} />
+            </div>
+            <div className="stat-content">
+              <span className="stat-label">Total Students</span>
+              <div className="stat-value-group">
+                <span className="stat-value">{overview.totalStudents}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="stat-card reveal delay-3">
+            <div className="stat-icon-wrapper bg-amber-100 text-amber-600">
+              <BarChart3 size={20} />
+            </div>
+            <div className="stat-content">
+              <span className="stat-label">Quizzes / Submissions</span>
+              <div className="stat-value-group text-sm font-semibold">
+                <span className="text-slate-700">{overview.totalQuizzes} quizzes</span>
+                <span className="text-slate-400">•</span>
+                <span className="text-slate-700">{overview.totalSubmissions} submits</span>
+              </div>
+              <div className="text-xs text-slate-500 mt-1">{overview.liveQuizzes} quizzes currently live</div>
+            </div>
+          </div>
+        </section>
+
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-12">
+          <section className="content-card xl:col-span-7 reveal delay-4">
+            <div className="card-header mb-4">
+              <div className="card-title-group">
+                <div className="card-icon-wrapper">
+                  <Users size={20} className="text-emerald-600" />
+                </div>
+                <div>
+                  <h2 className="card-title">Faculty Management</h2>
+                  <p className="card-subtitle">Update faculty details and remove inactive faculty records</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <label className="form-label text-sm font-medium text-slate-700">Filter by Department</label>
+              <select
+                value={selectedFacultyDept}
+                onChange={(e) => setSelectedFacultyDept(e.target.value)}
+                className="form-select min-h-[40px] max-w-xs"
+              >
+                <option value="all">All Departments</option>
+                <option value="CSE">CSE</option>
+                <option value="IT">IT</option>
+                <option value="SE">SE</option>
+                <option value="ISE">ISE</option>
+                <option value="ECE">ECE</option>
+                <option value="EE">EE</option>
+                <option value="ME">ME</option>
+                <option value="CE">CE</option>
+              </select>
+            </div>
+
+            {loading ? (
+              <div className="loading-state">
+                <div className="loading-spinner" />
+                <span>Loading faculty records...</span>
+              </div>
+            ) : filteredFaculty.length === 0 ? (
+              <div className="empty-state">
+                <div className="empty-state-icon">👩‍🏫</div>
+                <h3 className="empty-state-title">No Faculty Found</h3>
+                <p className="empty-state-description">
+                  {selectedFacultyDept === 'all' 
+                    ? 'No faculty records are currently available.' 
+                    : `No faculty found in ${selectedFacultyDept} department.`
+                  }
+                </p>
+              </div>
+            ) : (
+              <div className="table-container">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Department</th>
+                      <th>Subjects / Years</th>
+                      <th>Performance</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredFaculty.map((faculty) => (
+                      <tr key={faculty.id}>
+                        <td>
+                          <div className="font-semibold">{faculty.name}</div>
+                          <div className="text-xs text-slate-500">{faculty.email}</div>
+                        </td>
+                        <td>{faculty.dept || '-'}</td>
+                        <td>
+                          {(() => {
+                            const byYear = parseSubjectsByYear(faculty.subject);
+                            const years = Object.keys(byYear);
+                            if (years.length === 0) {
+                              return <span className="text-slate-400 italic text-xs">No teaching details set</span>;
+                            }
+                            return (
+                              <div className="space-y-0.5">
+                                {years.map((yr) => (
+                                  <div key={yr} className="text-xs">
+                                    <span className="font-semibold text-emerald-700">{yr} Year</span>
+                                    {byYear[yr] && (
+                                      <span className="text-slate-600">: {byYear[yr]}</span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })()}
+                        </td>
+                        <td>
+                          <div className="text-xs text-slate-600">
+                            {faculty.totalQuizzes} quizzes • {faculty.totalSubmissions} submissions • Avg{' '}
+                            {Number(faculty.avgScore || 0).toFixed(1)}%
+                          </div>
+                        </td>
+                        <td>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => startEditFaculty(faculty)}
+                              className="btn-secondary inline-flex items-center gap-1 px-3 py-1.5 text-xs"
+                            >
+                              <Pencil size={12} /> Edit
+                            </button>
+                            <button
+                              onClick={() => void deleteFaculty(faculty)}
+                              disabled={deletingId === faculty.id}
+                              className="btn-outline-danger inline-flex items-center gap-1 px-3 py-1.5 text-xs"
+                            >
+                              <Trash2 size={12} /> {deletingId === faculty.id ? 'Deleting...' : 'Delete'}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          <section className="content-card xl:col-span-5 reveal delay-5">
+            <div className="card-header mb-4">
+              <div className="card-title-group">
+                <div className="card-icon-wrapper">
+                  <Pencil size={20} className="text-emerald-600" />
+                </div>
+                <div>
+                  <h2 className="card-title">Edit Faculty</h2>
+                  <p className="card-subtitle">Select faculty from table to edit details</p>
+                </div>
+              </div>
+            </div>
+
+            {!selectedFaculty ? (
+              <div className="empty-state py-10">
+                <div className="empty-state-icon">✍️</div>
+                <h3 className="empty-state-title">No Faculty Selected</h3>
+                <p className="empty-state-description">Choose a faculty row and click Edit to update details.</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="form-group">
+                  <label className="form-label">Name</label>
+                  <input
+                    value={editForm.name}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))}
+                    className="form-input min-h-[44px]"
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Email</label>
+                  <input
+                    type="email"
+                    value={editForm.email}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, email: e.target.value }))}
+                    className="form-input min-h-[44px]"
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Department</label>
+                  <select
+                    value={editForm.dept}
+                    onChange={(e) => setEditForm((prev) => ({ ...prev, dept: e.target.value }))}
+                    className="form-select min-h-[44px]"
+                  >
+                    <option value="CSE">CSE</option>
+                    <option value="IT">IT</option>
+                    <option value="SE">SE</option>
+                    <option value="ISE">ISE</option>
+                    <option value="ECE">ECE</option>
+                    <option value="EE">EE</option>
+                    <option value="ME">ME</option>
+                    <option value="CE">CE</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">🎓 Teaching Details (Year → Subjects)</label>
+                  <div className="space-y-2 mt-1">
+                    {['1st', '2nd', '3rd', '4th'].map((yr) => {
+                      const isSelected = yr in editSubjectsByYear;
+                      return (
+                        <div
+                          key={yr}
+                          className={`rounded-lg border p-2.5 transition-all ${
+                            isSelected ? 'border-emerald-400 bg-emerald-50/60' : 'border-slate-200 bg-white/60'
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditSubjectsByYear((prev) => {
+                                const updated = { ...prev };
+                                if (isSelected) delete updated[yr];
+                                else updated[yr] = '';
+                                return updated;
+                              });
+                            }}
+                            className="flex items-center gap-2 w-full text-left"
+                          >
+                            <span
+                              className={`w-4 h-4 rounded border-2 flex-shrink-0 flex items-center justify-center text-[10px] font-bold ${
+                                isSelected
+                                  ? 'bg-emerald-600 border-emerald-600 text-white'
+                                  : 'bg-white border-slate-300 text-transparent'
+                              }`}
+                            >
+                              ✓
+                            </span>
+                            <span className={`font-semibold text-xs ${isSelected ? 'text-emerald-700' : 'text-slate-500'}`}>
+                              {yr} Year
+                            </span>
+                          </button>
+                          {isSelected && (
+                            <div className="mt-1.5 pl-6">
+                              <input
+                                type="text"
+                                className="form-input min-h-[36px] text-xs w-full"
+                                placeholder="e.g. Data Structures, OS"
+                                value={editSubjectsByYear[yr] || ''}
+                                onChange={(e) =>
+                                  setEditSubjectsByYear((prev) => ({ ...prev, [yr]: e.target.value }))
+                                }
+                              />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => void saveFaculty()}
+                    disabled={savingId === selectedFaculty.id}
+                    className="btn-primary inline-flex items-center justify-center gap-2 min-h-[44px] flex-1"
+                  >
+                    {savingId === selectedFaculty.id ? 'Saving...' : 'Save Changes'}
+                  </button>
+                  <button
+                    onClick={() => setEditingFacultyId(null)}
+                    className="btn-secondary inline-flex items-center justify-center min-h-[44px] px-5"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </section>
+
+          <section className="content-card xl:col-span-12 reveal delay-6">
+            <div className="card-header mb-4">
+              <div className="card-title-group">
+                <div className="card-icon-wrapper">
+                  <Users size={20} className="text-blue-600" />
+                </div>
+                <div>
+                  <h2 className="card-title">Student Management</h2>
+                  <p className="card-subtitle">View all students and their quiz submission details</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <div className="flex flex-wrap items-end justify-between gap-4">
+                <div className="flex items-end gap-4">
+                  <div>
+                    <label className="form-label text-sm font-medium text-slate-700">Filter by Department</label>
+                    <div className="flex gap-2">
+                      <select
+                        value={selectedStudentDept}
+                        onChange={(e) => setSelectedStudentDept(e.target.value)}
+                        className="form-select min-h-[40px] max-w-xs"
+                      >
+                        <option value="all">All Departments</option>
+                        <option value="CSE">CSE</option>
+                        <option value="IT">IT</option>
+                        <option value="SE">SE</option>
+                        <option value="ISE">ISE</option>
+                        <option value="ECE">ECE</option>
+                        <option value="EE">EE</option>
+                        <option value="ME">ME</option>
+                        <option value="CE">CE</option>
+                      </select>
+                      {selectedStudentDept !== 'all' && (
+                        <button
+                          onClick={() => setSelectedStudentDept('all')}
+                          className="btn-secondary px-3 py-2 min-h-[40px] text-sm"
+                        >
+                          Show All
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => void cleanupNonMkceStudents()}
+                    disabled={loading}
+                    className="btn-outline-danger inline-flex items-center gap-1 px-4 py-2 min-h-[40px]"
+                    title="Remove all students not from MKCE domain"
+                  >
+                    <Trash2 size={16} /> Cleanup Non-MKCE Students
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="loading-state">
+                <div className="loading-spinner" />
+                <span>Loading student records...</span>
+              </div>
+            ) : filteredStudents.length === 0 ? (
+              <div className="empty-state">
+                <div className="empty-state-icon">👨‍🎓</div>
+                <h3 className="empty-state-title">No Students Found</h3>
+                <p className="empty-state-description">
+                  {selectedStudentDept === 'all' 
+                    ? 'No student records are currently available.' 
+                    : `No students found in ${selectedStudentDept} department.`
+                  }
+                </p>
+              </div>
+            ) : (
+              <div className="table-container">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Registration No</th>
+                      <th>Department / Year / Semester</th>
+                      <th>Performance</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredStudents.map((student) => (
+                      <tr key={student.id}>
+                        <td>
+                          <div className="font-semibold">{student.name}</div>
+                          <div className="text-xs text-slate-500">{student.email}</div>
+                        </td>
+                        <td className="text-sm">{student.reg_no || '-'}</td>
+                        <td className="text-sm">
+                          {student.dept || '-'} / {student.year || '-'} / {student.sem || '-'}
+                        </td>
+                        <td>
+                          <div className="text-xs text-slate-600">
+                            {student.totalSubmissions} submissions • Avg {Number(student.avgScore || 0).toFixed(1)}%
+                          </div>
+                        </td>
+                        <td>
+                          <button
+                            onClick={() => void deleteStudent(student)}
+                            disabled={deletingId === student.id}
+                            className="btn-outline-danger inline-flex items-center gap-1 px-3 py-1.5 text-xs"
+                          >
+                            <Trash2 size={12} /> {deletingId === student.id ? 'Deleting...' : 'Delete'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          <section className="content-card xl:col-span-12 reveal delay-5">
+            <div className="card-header mb-4">
+              <div className="card-title-group">
+                <div className="card-icon-wrapper">
+                  <BarChart3 size={20} className="text-emerald-600" />
+                </div>
+                <div>
+                  <h2 className="card-title">All Quiz Activity</h2>
+                  <p className="card-subtitle">Cross-platform view of quizzes across all faculty</p>
+                </div>
+              </div>
+            </div>
+
+            {quizRows.length === 0 ? (
+              <div className="empty-state py-10">
+                <div className="empty-state-icon">📘</div>
+                <h3 className="empty-state-title">No Quiz Data</h3>
+                <p className="empty-state-description">Quiz activity will appear here once faculty create quizzes.</p>
+              </div>
+            ) : (
+              <div className="table-container">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Quiz</th>
+                      <th>Faculty</th>
+                      <th>Status</th>
+                      <th>Audience</th>
+                      <th>Performance</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {quizRows.map((quiz) => (
+                      <tr key={quiz.id}>
+                        <td className="font-medium">{quiz.title}</td>
+                        <td>{quiz.facultyName}</td>
+                        <td>
+                          <span className={`badge ${quiz.status === 'live' ? 'badge-live' : 'badge-primary'}`}>
+                            {quiz.status}
+                          </span>
+                        </td>
+                        <td>
+                          {Number(quiz.isGeneral || 0) === 1
+                            ? 'General'
+                            : `${quiz.dept || '-'} / ${quiz.year || '-'} / ${quiz.sem || '-'}`}
+                        </td>
+                        <td className="text-xs text-slate-600">
+                          {quiz.submissions} submissions • Avg {Number(quiz.avgScore || 0).toFixed(1)}%
+                        </td>
+                        <td>
+                          <button
+                            onClick={() => void deleteQuiz(quiz)}
+                            disabled={deletingId === quiz.id}
+                            className="btn-outline-danger inline-flex items-center justify-center gap-1 min-h-[32px] px-2 text-xs"
+                          >
+                            <Trash2 size={12} />
+                            {deletingId === quiz.id ? 'Deleting...' : 'Delete'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}

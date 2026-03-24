@@ -1,0 +1,98 @@
+export type UserRole = 'student' | 'faculty' | 'admin' | 'guest';
+
+export interface User {
+  id: number;
+  name: string;
+  email: string;
+  role: UserRole;
+  reg_no?: string;
+  dept?: string;
+  year?: string;
+  sem?: string;
+  subject?: string;   // faculty: subject(s) they teach
+  teaching_years?: string; // faculty: year(s) they handle e.g. "2nd,3rd"
+}
+
+export interface Question {
+  id: string;
+  text: string;
+  options: string[];
+  correctAnswer: number;
+}
+
+export interface Quiz {
+  id: string;
+  title: string;
+  dept: string;
+  year: string;
+  sem: string;
+  submissions: number;
+  avgScore: number;
+  createdAt: string;
+  myScore?: number;
+  questions?: Question[];
+  status?: 'draft' | 'live' | 'ended';
+  isGeneral?: boolean;
+  results_published?: number;
+  hasSubmitted?: number;
+}
+
+export interface Submission {
+  id: string;
+  quizId: string;
+  studentId: number;
+  studentName: string;
+  score: number;
+  timeTaken: number; // in seconds
+  accuracy: number; // percentage
+  createdAt: string;
+}
+
+export interface StudentStats {
+  totalQuizzes: number;
+  avgScore: number;
+}
+
+export interface StudentSubmission {
+  id: number;
+  quizId: number;
+  title: string;
+  dept: string;
+  year: string;
+  sem: string;
+  status?: 'draft' | 'live' | 'ended';
+  resultsPublished: boolean;
+  submittedAt: string;
+  timeTaken: number;
+  accuracy: number;
+  score: number | null;
+  correctCount: number;
+  totalQuestions: number;
+  questions: Question[];
+  answers: Record<string, number>;
+}
+
+export interface StudyTopic {
+  id: number;
+  title: string;
+  content: string;
+  attachments?: Array<{
+    id: string;
+    filename: string;
+    originalName: string;
+    mimeType: string;
+    size: number;
+    url: string;
+  }>;
+  topicType: 'ssa' | 'quiz' | 'both';
+  dept?: string | null;
+  year?: string | null;
+  sem?: string | null;
+  isGeneral?: number;
+  quizId?: number | null;
+  quizTitle?: string | null;
+  createdAt: string;
+  facultyName?: string;
+  studentSubmitted?: number;
+  myScore?: number | null;
+}

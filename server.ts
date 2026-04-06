@@ -329,7 +329,39 @@ for (const quiz of storedQuizzes) {
   }
 }
 
+// Ensure there is at least one admin user in the system
+const ensureDefaultAdmin = () => {
+  const existingAdmin = db.prepare("SELECT id, email FROM users WHERE role = 'admin' LIMIT 1").get();
+  if (existingAdmin) {
+    console.log(`[admin] Existing admin found: ${existingAdmin.email}`);
+    return;
+  }
+
+  const adminEmail = process.env.ADMIN_EMAIL || 'admin@mkce.ac.in';
+  const adminPassword = process.env.ADMIN_PASSWORD || 'Admin@123';
+
+  const hashedPassword = bcrypt.hashSync(adminPassword, 10);
+
+  db.prepare(
+    "INSERT INTO users (name, email, password, role, reg_no, dept, year, sem) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+  ).run(
+    'Platform Admin',
+    adminEmail,
+    hashedPassword,
+    'admin',
+    null,
+    null,
+    null,
+    null
+  );
+
+  console.log(`[admin] Default admin created with email: ${adminEmail}`);
+};
+
 async function startServer() {
+  // Make sure an admin account exists before handling requests
+  ensureDefaultAdmin();
+
   const app = express();
   const httpServer = createServer(app);
   const io = new Server(httpServer, {
